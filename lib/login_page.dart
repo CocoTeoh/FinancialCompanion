@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'register_page.dart'; // make sure this file exists
-import 'course_page.dart';   // import the course page
+import 'package:firebase_auth/firebase_auth.dart';
+import 'register_page.dart';
+import 'course_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -12,17 +13,51 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
 
+
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+
+  Future<void> _login() async {
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const CoursePage()),
+      );
+    } on FirebaseAuthException catch (e) {
+      String message;
+      if (e.code == 'user-not-found') {
+        message = "No user found with this email.";
+      } else if (e.code == 'wrong-password') {
+        message = "Incorrect password.";
+      } else {
+        message = "Login failed: ${e.message}";
+      }
+
+      // Show error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF8EBB87),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF8EBB87), // match background
-        elevation: 0, // remove shadow
+        backgroundColor: const Color(0xFF8EBB87),
+        elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () {
-            Navigator.pop(context); // go back to previous page
+            Navigator.pop(context);
           },
         ),
       ),
@@ -64,6 +99,7 @@ class _LoginPageState extends State<LoginPage> {
                 width: 358,
                 height: 46,
                 child: TextField(
+                  controller: _emailController,
                   decoration: InputDecoration(
                     filled: true,
                     fillColor: Colors.white,
@@ -98,6 +134,7 @@ class _LoginPageState extends State<LoginPage> {
                 width: 358,
                 height: 46,
                 child: TextField(
+                  controller: _passwordController,
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
                     filled: true,
@@ -153,15 +190,7 @@ class _LoginPageState extends State<LoginPage> {
                       borderRadius: BorderRadius.circular(50),
                     ),
                   ),
-                  onPressed: () {
-                    // ✅ Navigate to CoursePage
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CoursePage(),
-                      ),
-                    );
-                  },
+                  onPressed: _login,
                   child: const Text(
                     "Login",
                     style: TextStyle(fontSize: 14, color: Colors.white),
@@ -207,7 +236,7 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 16),
 
-              // Google Login Button
+              // Google Login Button (to be implemented later)
               SizedBox(
                 width: 358,
                 height: 44,
@@ -219,7 +248,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   onPressed: () {
-                    // Add Google login function later
+                    // TODO: Add Google login later
                   },
                   child: const Text(
                     "Login with Google",
