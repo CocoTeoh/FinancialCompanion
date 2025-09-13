@@ -25,52 +25,92 @@ class _CoursePageState extends State<CoursePage> {
                 children: [
                   // Search bar
                   Container(
-                    height: 40,
+                    height: 45,
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const TextField(
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        prefixIcon: Icon(Icons.search, color: Colors.grey),
-                        hintText: "Search for courses",
-                        hintStyle: TextStyle(fontFamily: "Poppins"),
-                        suffixIcon: Icon(Icons.filter_list, color: Colors.grey),
-                        contentPadding: EdgeInsets.symmetric(vertical: 10),
-                      ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.search, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: TextField(
+                            decoration: InputDecoration(
+                              hintText: "Search for courses",
+                              hintStyle:
+                              TextStyle(fontFamily: "Poppins", fontSize: 14),
+                              border: InputBorder.none,
+                            ),
+                          ),
+                        ),
+                        const Icon(Icons.filter_list, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.star_border, color: Colors.grey),
+                      ],
                     ),
                   ),
+
                   const SizedBox(height: 16),
 
-                  // Categories row
-                  Wrap(
-                    spacing: 8,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center, // center the row
                     children: [
                       _buildChip("Budgeting", true),
+                      const SizedBox(width: 8),
                       _buildChip("Investing", false),
+                      const SizedBox(width: 8),
                       _buildChip("Banking", false),
+                      const SizedBox(width: 8),
                       _buildChip("Planning", false),
                     ],
                   ),
+
+
+
                   const SizedBox(height: 16),
 
-                  // Greeting box
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE8F5E9),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      "Hi Jane!\nLet's find some courses and learn to earn together!",
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 14,
-                        color: Colors.black87,
+                  // Greeting box with cat outside
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Spacer(), // pushes everything to the right
+                      Container(
+                        width: 214,
+                        height: 84,
+                        padding: const EdgeInsets.all(12),
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(20),
+                            topRight: Radius.circular(20),
+                            bottomLeft: Radius.circular(20),
+                          ),
+                        ),
+                        child: const Text(
+                          "Hi Jane!\nLet’s find some courses and learn to earn together!",
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12,
+                            color: Colors.black87,
+                          ),
+                        ),
                       ),
-                    ),
+
+                      Padding(
+                        padding: const EdgeInsets.only(top: 30),
+                        child: Image.asset(
+                          'assets/cat.png',
+                          width: 122,
+                          height: 122,
+                        ),
+                      ),
+                    ],
                   ),
+
+
+
                   const SizedBox(height: 24),
 
                   // Recommended section
@@ -133,7 +173,8 @@ class _CoursePageState extends State<CoursePage> {
                       Align(
                         alignment: Alignment.topLeft,
                         child: IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+                          icon:
+                          const Icon(Icons.arrow_back, color: Colors.white),
                           onPressed: () {
                             setState(() => _showBudgeting101 = false);
                           },
@@ -150,7 +191,7 @@ class _CoursePageState extends State<CoursePage> {
                               "Budgeting 101: A Basic Guide to Managing Your Money",
                               style: TextStyle(
                                 fontFamily: 'Poppins',
-                                fontSize: 16,
+                                fontSize: 24,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
                               ),
@@ -188,7 +229,7 @@ class _CoursePageState extends State<CoursePage> {
                       const Text(
                         "5 Min read · Audio course available",
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           color: Color(0xFFB8B8D2),
                           fontFamily: 'Poppins',
                         ),
@@ -215,7 +256,7 @@ class _CoursePageState extends State<CoursePage> {
                               Text(
                                 "Budgeting is the process of creating a plan for how you'll allocate your money over a given period, typically a month. It allows you to track your income and expenses, helping you manage your finances, achieve financial goals, and avoid overspending.",
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: Color(0xFF9393A3),
                                   fontFamily: 'Poppins',
                                 ),
@@ -239,7 +280,7 @@ class _CoursePageState extends State<CoursePage> {
                                     "3. Debt Management : A budget can help you avoid or manage debt by controlling spending.\n"
                                     "4. Stress Reduction : Having a clear financial plan reduces uncertainty and stress.",
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: Color(0xFF9393A3),
                                   fontFamily: 'Poppins',
                                 ),
@@ -263,7 +304,7 @@ class _CoursePageState extends State<CoursePage> {
                                     "- Any side income or freelance earnings\n"
                                     "- Other regular sources of income (e.g., rental income, dividends)",
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: Color(0xFF9393A3),
                                   fontFamily: 'Poppins',
                                 ),
@@ -301,23 +342,24 @@ class _CoursePageState extends State<CoursePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.white : Colors.transparent,
-        border: Border.all(
-          color: isSelected ? Colors.blue : Colors.grey.shade400,
-        ),
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.white, // stays white
+        borderRadius: BorderRadius.circular(5),
       ),
       child: Text(
         text,
-        style: TextStyle(
+        style: const TextStyle(
           fontFamily: 'Poppins',
-          fontSize: 14,
+          fontSize: 12,
           fontWeight: FontWeight.w500,
-          color: isSelected ? Colors.black : Colors.black87,
+          color: Color(0xFF858597), // new text color
         ),
       ),
     );
   }
+
+
+
+
 
   static Widget _buildCourseCard(String title, String author, String quiz,
       String duration, bool hasQuiz) {
@@ -392,3 +434,6 @@ class _CoursePageState extends State<CoursePage> {
     );
   }
 }
+
+
+

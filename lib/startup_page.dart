@@ -15,19 +15,27 @@ class StartupPage extends StatelessWidget {
           children: [
             const SizedBox(), // pushes text to middle
             // Title
-            const Center(
-              child: Text(
-                "Financial Companion",
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: "Poppins",
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+            Column(
+              children: [
+                //puppy image
+                Image.asset('assets/puppy.png',
+                width:125,
+                height: 107,
                 ),
-              ),
+                const SizedBox(height:5),
+                const Text(
+                  "Financial Companion",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: "Poppins",
+                    fontSize: 32,
+                    color: Colors.white,
+                  ),
+                )
+              ],
             ),
             // Buttons
+
             Padding(
               padding: const EdgeInsets.only(bottom: 40),
               child: Column(
@@ -89,6 +97,7 @@ class StartupPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 15),
                   // Google login button
+                  // Google login button
                   OutlinedButton(
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Colors.white, width: 2),
@@ -100,15 +109,28 @@ class StartupPage extends StatelessWidget {
                     onPressed: () {
                       // Google login action
                     },
-                    child: const Text(
-                      "Login with Google",
-                      style: TextStyle(
-                        fontFamily: "Poppins",
-                        fontSize: 14,
-                        color: Colors.white,
-                      ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Google logo
+                        Image.asset(
+                          'assets/google.png',
+                          width: 50,
+                          height: 50,
+                        ),
+                       //Login with google text
+                        const Text(
+                          "Login with Google",
+                          style: TextStyle(
+                            fontFamily: "Poppins",
+                            fontSize: 14,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+
                 ],
               ),
             ),
