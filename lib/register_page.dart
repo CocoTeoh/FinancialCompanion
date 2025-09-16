@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'login_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -13,14 +14,12 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
 
-
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController =
   TextEditingController();
-
 
   Future<void> _register() async {
     if (_passwordController.text.trim() !=
@@ -32,12 +31,27 @@ class _RegisterPageState extends State<RegisterPage> {
     }
 
     try {
+      // ✅ Create user in Firebase Auth
+      UserCredential userCredential =
       await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
+      // ✅ Get UID of the new user
+      final uid = userCredential.user?.uid;
 
+      // ✅ Save user profile in Firestore
+      if (uid != null) {
+        await FirebaseFirestore.instance.collection("users").doc(uid).set({
+          "firstName": _firstNameController.text.trim(),
+          "lastName": _lastNameController.text.trim(),
+          "email": _emailController.text.trim(),
+          "favourites": [], // start empty
+        });
+      }
+
+      // ✅ Navigate to login page
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const LoginPage()),
@@ -97,9 +111,13 @@ class _RegisterPageState extends State<RegisterPage> {
               // First & Last Name
               Row(
                 children: [
-                  Expanded(child: _buildTextField("First Name", "John", _firstNameController)),
+                  Expanded(
+                      child: _buildTextField(
+                          "First Name", "John", _firstNameController)),
                   const SizedBox(width: 12),
-                  Expanded(child: _buildTextField("Last Name", "Doe", _lastNameController)),
+                  Expanded(
+                      child: _buildTextField(
+                          "Last Name", "Doe", _lastNameController)),
                 ],
               ),
 
@@ -127,7 +145,8 @@ class _RegisterPageState extends State<RegisterPage> {
               const SizedBox(height: 16),
 
               // Confirm Password
-              _buildPasswordField("Confirm Password", false, _confirmPasswordController),
+              _buildPasswordField(
+                  "Confirm Password", false, _confirmPasswordController),
 
               const SizedBox(height: 32),
 
@@ -197,23 +216,27 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   // 🔹 Text Field builder with controller
-  Widget _buildTextField(String label, String hint, TextEditingController controller) {
+  Widget _buildTextField(
+      String label, String hint, TextEditingController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.black),
+          style:
+          const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.black),
         ),
         const SizedBox(height: 6),
         Container(
           height: 46,
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+          decoration: BoxDecoration(
+              color: Colors.white, borderRadius: BorderRadius.circular(8)),
           child: TextField(
             controller: controller,
             decoration: InputDecoration(
               hintText: hint,
-              hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.grey),
+              hintStyle: const TextStyle(
+                  fontFamily: 'Poppins', fontSize: 14, color: Colors.grey),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
             ),
@@ -224,18 +247,21 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   // 🔹 Password Field builder with controller
-  Widget _buildPasswordField(String label, bool isPassword, TextEditingController controller) {
+  Widget _buildPasswordField(
+      String label, bool isPassword, TextEditingController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.black),
+          style:
+          const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.black),
         ),
         const SizedBox(height: 6),
         Container(
           height: 46,
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+          decoration: BoxDecoration(
+              color: Colors.white, borderRadius: BorderRadius.circular(8)),
           child: TextField(
             controller: controller,
             obscureText: isPassword ? _obscurePassword : _obscureConfirm,
