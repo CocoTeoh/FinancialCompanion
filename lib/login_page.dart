@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'register_page.dart';
 import 'course_page.dart';
+import 'forgotpwd_page.dart';
+
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -166,16 +168,26 @@ class _LoginPageState extends State<LoginPage> {
               const SizedBox(height: 6),
 
               // Forgot Password
-              const Align(
+              Align(
                 alignment: Alignment.centerRight,
-                child: Text(
-                  "Forgot Password?",
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF346051),
+                child: GestureDetector(
+                  onTap: () {
+                    Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const ForgotPwdPage()),
+                    );
+                  },
+                  child: const Text(
+                    "Forgot Password?",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF346051),
+                      decoration: TextDecoration.underline,
+                    ),
                   ),
                 ),
               ),
+
+
 
               const SizedBox(height: 30),
 
