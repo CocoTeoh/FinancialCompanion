@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'register_page.dart';
 import 'course_page.dart';
 import 'forgotpwd_page.dart';
+import 'main_shell.dart';
+
 
 
 class LoginPage extends StatefulWidget {
@@ -27,10 +29,9 @@ class _LoginPageState extends State<LoginPage> {
         password: _passwordController.text.trim(),
       );
 
-
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const CoursePage()),
+        MaterialPageRoute(builder: (context) => const MainShell(initialIndex: 2)),
       );
     } on FirebaseAuthException catch (e) {
       String message;
@@ -42,12 +43,12 @@ class _LoginPageState extends State<LoginPage> {
         message = "Login failed: ${e.message}";
       }
 
-      // Show error message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

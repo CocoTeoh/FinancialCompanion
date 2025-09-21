@@ -426,17 +426,7 @@ class _CoursePageState extends State<CoursePage> {
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                width: 64,
-                height: 64,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  image: DecorationImage(
-                    image: AssetImage('assets/cat.png'),
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
+
             ],
           ),
           const SizedBox(height: 16),
@@ -456,7 +446,7 @@ class _CoursePageState extends State<CoursePage> {
                 style: const TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w600,
                   color: Color(0xFF214235),
                 ),
               ),
@@ -756,6 +746,25 @@ class _CoursePageState extends State<CoursePage> {
                         color: Colors.white),
                   ),
                   const SizedBox(height: 10),
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      image: const DecorationImage(
+                        image: AssetImage('assets/cat.png'),
+                        fit: BoxFit.contain,
+                      ),
+                      borderRadius: BorderRadius.circular(30),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 4,
+                          offset: const Offset(2, 2),
+                        ),
+                      ],
+                    ),
+                  ),
+
 
                   // Your choice (if wrong show red X + text)
                   if (chosen != null && !isCorrect)
@@ -847,25 +856,7 @@ class _CoursePageState extends State<CoursePage> {
     return Scaffold(
       backgroundColor: const Color(0xFF8EBB87),
 
-      // Simple bottom menu bar (placeholder callbacks)
-      bottomNavigationBar: Container(
-        height: 64,
-        decoration: const BoxDecoration(
-          color: Color(0xFF5E8A76),
-          borderRadius:
-          BorderRadius.vertical(top: Radius.circular(18)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: const [
-            Icon(Icons.menu_book, color: Colors.white),
-            Icon(Icons.attach_money, color: Colors.white),
-            Icon(Icons.home, color: Colors.white),
-            Icon(Icons.pets, color: Colors.white),
-            Icon(Icons.person_outline, color: Colors.white),
-          ],
-        ),
-      ),
+
 
       body: SafeArea(
         child: FutureBuilder<DocumentSnapshot>(
@@ -880,6 +871,31 @@ class _CoursePageState extends State<CoursePage> {
 
             // User's favourites
             List favs = favSnapshot.data!['favourites'] ?? [];
+
+            // Prefer firstName from Firestore; fall back to other sources
+            final authUser = FirebaseAuth.instance.currentUser;
+            final data = (favSnapshot.data!.data() as Map<String, dynamic>? ) ?? {};
+
+            // try common key variants
+            String userName = '';
+            for (final key in ['firstName', 'first_name', 'firstname']) {
+              final v = (data[key] ?? '').toString().trim();
+              if (v.isNotEmpty) { userName = v; break; }
+            }
+
+            if (userName.isEmpty) {
+              // if there's a full name, take the first token
+              final full = (data['name'] ?? data['username'] ?? authUser?.displayName ?? '')
+                  .toString()
+                  .trim();
+              if (full.isNotEmpty) {
+                userName = full.split(' ').first; // "Jane Doe" -> "Jane"
+              } else {
+                userName = (authUser?.email?.split('@').first ?? 'there');
+              }
+            }
+
+
 
             return StreamBuilder<List<Course>>(
               stream: getCourses(),
@@ -978,40 +994,63 @@ class _CoursePageState extends State<CoursePage> {
                           ),
 
                           // Pet bubble on main list
-                          Positioned(
-                            bottom: 16,
-                            right: 16,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 8),
-                                  margin: const EdgeInsets.only(bottom: 8),
+                          const SizedBox(height: 12),
+
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              // Bubble (left)
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                   decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
+                                    color: Colors.white, // solid white
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(16),
+                                      topRight: Radius.circular(16),
+                                      bottomLeft: Radius.circular(16),
+                                      bottomRight: Radius.circular(0), // square BR corner
+                                    ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color:
-                                        Colors.black.withOpacity(0.2),
-                                        blurRadius: 4,
-                                        offset: const Offset(2, 2),
+                                        color: Colors.black.withOpacity(0.08),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 3),
                                       ),
                                     ],
                                   ),
-                                  child: const Text(
-                                    "Hi! Need help?",
-                                    style: TextStyle(
+                                  child: Text(
+                                    "Hi $userName!\nLets find some courses and learn to earn together!",
+                                    style: const TextStyle(
                                       fontFamily: 'Poppins',
-                                      fontSize: 12,
-                                      color: Colors.black87,
+                                      fontSize: 14,
+                                      height: 1.35,
+                                      color: Color(0xFF1E293B),
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+
+                              const SizedBox(width: 12),
+
+                              // Big cat (right)
+                              Container(
+                                width: 96,
+                                height: 96,
+                                decoration: BoxDecoration(
+                                  image: const DecorationImage(
+                                    image: AssetImage('assets/cat.png'),
+                                    fit: BoxFit.contain,
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                            ],
                           ),
+
+                          const SizedBox(height: 20),
+
                           Container(
                             width: 60,
                             height: 60,
