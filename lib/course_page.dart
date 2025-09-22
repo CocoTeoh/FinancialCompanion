@@ -409,23 +409,41 @@ class _CoursePageState extends State<CoursePage> {
             children: [
               Expanded(
                 child: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF6F8D7E),
-                    borderRadius: BorderRadius.circular(18),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: const BoxDecoration(
+                    color: Colors.white, // white background
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(15),
+                      topRight: Radius.circular(15),
+                      bottomLeft: Radius.circular(15),
+                      bottomRight: Radius.circular(0),
+                    ),
                   ),
                   child: Text(
                     _bubble,
                     style: const TextStyle(
                       fontFamily: 'Poppins',
-                      color: Colors.white,
+                      color: Colors.black, // black text
                       fontSize: 12,
                     ),
                   ),
                 ),
               ),
+
               const SizedBox(width: 8),
+
+              Container(
+                width: 90,
+                height: 90,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  image: DecorationImage(
+                    image: AssetImage('assets/cat.png'),
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+
 
             ],
           ),
@@ -746,24 +764,7 @@ class _CoursePageState extends State<CoursePage> {
                         color: Colors.white),
                   ),
                   const SizedBox(height: 10),
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      image: const DecorationImage(
-                        image: AssetImage('assets/cat.png'),
-                        fit: BoxFit.contain,
-                      ),
-                      borderRadius: BorderRadius.circular(30),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
-                          blurRadius: 4,
-                          offset: const Offset(2, 2),
-                        ),
-                      ],
-                    ),
-                  ),
+
 
 
                   // Your choice (if wrong show red X + text)
@@ -997,7 +998,7 @@ class _CoursePageState extends State<CoursePage> {
                           const SizedBox(height: 12),
 
                           Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               // Bubble (left)
                               Expanded(
@@ -1026,7 +1027,7 @@ class _CoursePageState extends State<CoursePage> {
                                       fontSize: 14,
                                       height: 1.35,
                                       color: Color(0xFF1E293B),
-                                      fontWeight: FontWeight.w600,
+
                                     ),
                                   ),
                                 ),
@@ -1035,40 +1036,25 @@ class _CoursePageState extends State<CoursePage> {
                               const SizedBox(width: 12),
 
                               // Big cat (right)
-                              Container(
-                                width: 96,
-                                height: 96,
-                                decoration: BoxDecoration(
-                                  image: const DecorationImage(
-                                    image: AssetImage('assets/cat.png'),
-                                    fit: BoxFit.contain,
+                              Padding(
+                                padding: const EdgeInsets.only(top: 30), // move cat down
+                                child: Container(
+                                  width: 96,
+                                  height: 96,
+                                  decoration: BoxDecoration(
+                                    image: const DecorationImage(
+                                      image: AssetImage('assets/cat.png'),
+                                      fit: BoxFit.contain,
+                                    ),
+                                    borderRadius: BorderRadius.circular(16),
                                   ),
-                                  borderRadius: BorderRadius.circular(16),
                                 ),
                               ),
+
                             ],
                           ),
 
                           const SizedBox(height: 20),
-
-                          Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              image: const DecorationImage(
-                                image: AssetImage('assets/cat.png'),
-                                fit: BoxFit.contain,
-                              ),
-                              borderRadius: BorderRadius.circular(30),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.3),
-                                  blurRadius: 4,
-                                  offset: const Offset(2, 2),
-                                ),
-                              ],
-                            ),
-                          ),
 
                           const SizedBox(height: 24),
                           const Text(
