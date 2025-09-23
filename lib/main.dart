@@ -35,4 +35,11 @@ class MyApp extends StatelessWidget {
       },
     );
   }
+
+  void main() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    await Firebase.initializeApp(); // add options if web
+    runApp(const MyApp());
+  }
+
 }

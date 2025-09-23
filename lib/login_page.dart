@@ -244,7 +244,7 @@ class _LoginPageState extends State<LoginPage> {
 
               // OR Login With
               const Text(
-                "or login with",
+                "OR",
                 style: TextStyle(fontSize: 14, color: Colors.black),
               ),
               const SizedBox(height: 16),

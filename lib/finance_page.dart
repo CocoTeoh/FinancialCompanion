@@ -457,7 +457,7 @@ class _CalendarTabState extends State<CalendarTab> {
 
                 // Fixed vertical footprint so it doesn't shift with "+";
                 return Padding(
-                  padding: const EdgeInsets.only(top: 36),
+                  padding: const EdgeInsets.only(top: 40),
                   child: SizedBox(
                     height: 10,
                     child: Row(
