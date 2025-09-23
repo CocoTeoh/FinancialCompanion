@@ -96,8 +96,7 @@ class StartupPage extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 15),
-                  // Google login button
-                  // Google login button
+                  /*Google login button(commented for now, may/may not setup later)
                   OutlinedButton(
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Colors.white, width: 2),
@@ -129,7 +128,7 @@ class StartupPage extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ),
+                  ),*/
 
                 ],
               ),

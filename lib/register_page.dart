@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'login_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/gestures.dart';
+import 'terms_and_condition.dart';
+import 'privacy_policy.dart';
+import 'verify_email_page.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -13,17 +16,57 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
+  bool _acceptedPolicy = false;
 
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController =
-  TextEditingController();
+  final TextEditingController _confirmPasswordController = TextEditingController();
+
+  late final TapGestureRecognizer _termsTap;
+  late final TapGestureRecognizer _privacyTap;
+
+  @override
+  void initState() {
+    super.initState();
+    _termsTap = TapGestureRecognizer()
+      ..onTap = () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const TermsAndConditionPage()),
+        );
+      };
+    _privacyTap = TapGestureRecognizer()
+      ..onTap = () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PrivacyPolicyPage()),
+        );
+      };
+  }
+
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _termsTap.dispose();
+    _privacyTap.dispose();
+    super.dispose();
+  }
 
   Future<void> _register() async {
-    if (_passwordController.text.trim() !=
-        _confirmPasswordController.text.trim()) {
+    if (!_acceptedPolicy) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please accept the Privacy Policy and Terms.")),
+      );
+      return;
+    }
+
+    if (_passwordController.text.trim() != _confirmPasswordController.text.trim()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Passwords do not match")),
       );
@@ -31,53 +74,49 @@ class _RegisterPageState extends State<RegisterPage> {
     }
 
     try {
-      // ✅ Create user in Firebase Auth
-      UserCredential userCredential =
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
-      // ✅ Get UID of the new user
-      final uid = userCredential.user?.uid;
-
-      // ✅ Save user profile in Firestore
+      final uid = cred.user?.uid;
       if (uid != null) {
         await FirebaseFirestore.instance.collection("users").doc(uid).set({
           "firstName": _firstNameController.text.trim(),
           "lastName": _lastNameController.text.trim(),
           "email": _emailController.text.trim(),
-          "favourites": [], // start empty
+          "favourites": [],
         });
       }
 
-      // ✅ Navigate to login page
+      // 🔔 Send verification email
+      await cred.user?.sendEmailVerification();
+
+      if (!mounted) return;
+
+      // ➜ Go to verify screen (auto-checks & logs in)
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const LoginPage()),
-      );
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Account created successfully!")),
+        MaterialPageRoute(builder: (_) => const VerifyEmailPage()),
       );
     } on FirebaseAuthException catch (e) {
-      String message;
-      if (e.code == 'weak-password') {
-        message = "Password is too weak.";
-      } else if (e.code == 'email-already-in-use') {
-        message = "This email is already registered.";
-      } else {
-        message = "Registration failed: ${e.message}";
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      final message = switch (e.code) {
+        'weak-password' => "Password is too weak.",
+        'email-already-in-use' => "This email is already registered.",
+        _ => "Registration failed: ${e.message}",
+      };
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    const labelStyle = TextStyle(
+      fontFamily: 'Poppins',
+      fontSize: 12,
+      color: Colors.black,
+    );
+
     return Scaffold(
       backgroundColor: const Color(0xFF8EBB87),
       appBar: AppBar(
@@ -85,9 +124,7 @@ class _RegisterPageState extends State<RegisterPage> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () {
-            Navigator.pop(context);
-          },
+          onPressed: () => Navigator.pop(context),
         ),
       ),
       body: SafeArea(
@@ -111,13 +148,9 @@ class _RegisterPageState extends State<RegisterPage> {
               // First & Last Name
               Row(
                 children: [
-                  Expanded(
-                      child: _buildTextField(
-                          "First Name", "John", _firstNameController)),
+                  Expanded(child: _buildTextField("First Name", "John", _firstNameController)),
                   const SizedBox(width: 12),
-                  Expanded(
-                      child: _buildTextField(
-                          "Last Name", "Doe", _lastNameController)),
+                  Expanded(child: _buildTextField("Last Name", "Doe", _lastNameController)),
                 ],
               ),
 
@@ -135,20 +168,66 @@ class _RegisterPageState extends State<RegisterPage> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   "must contain 8 char.",
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF346051),
-                  ),
+                  style: TextStyle(fontSize: 12, color: Color(0xFF346051)),
                 ),
               ),
 
               const SizedBox(height: 16),
 
               // Confirm Password
-              _buildPasswordField(
-                  "Confirm Password", false, _confirmPasswordController),
+              _buildPasswordField("Confirm Password", false, _confirmPasswordController),
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
+
+              // Terms & Privacy with circular checkbox
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Checkbox(
+                    value: _acceptedPolicy,
+                    onChanged: (v) => setState(() => _acceptedPolicy = v ?? false),
+                    shape: const CircleBorder(),
+                    side: const BorderSide(color: Color(0xFF346051), width: 1.6),
+                    activeColor: const Color(0xFF2B8761),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: RichText(
+                      textAlign: TextAlign.left,
+                      text: TextSpan(
+                        style: labelStyle,
+                        children: [
+                          const TextSpan(text: "I agree to the "),
+                          TextSpan(
+                            text: "Terms & Condition",
+                            style: const TextStyle(
+                              color: Color(0xFF346051),
+                              decoration: TextDecoration.underline,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            recognizer: _termsTap,
+                          ),
+                          const TextSpan(text: " and "),
+                          TextSpan(
+                            text: "Privacy Policy",
+                            style: const TextStyle(
+                              color: Color(0xFF346051),
+                              decoration: TextDecoration.underline,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            recognizer: _privacyTap,
+                          ),
+                          const TextSpan(text: "."),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
 
               // Create Account Button
               SizedBox(
@@ -157,54 +236,13 @@ class _RegisterPageState extends State<RegisterPage> {
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2B8761),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(50),
-                    ),
+                    disabledBackgroundColor: const Color(0xFF2B8761).withOpacity(0.4),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
                   ),
-                  onPressed: _register,
+                  onPressed: _acceptedPolicy ? _register : null,
                   child: const Text(
                     "Create Account",
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 14,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Terms & Privacy
-              SizedBox(
-                width: 358,
-                child: RichText(
-                  textAlign: TextAlign.center,
-                  text: const TextSpan(
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 12,
-                      color: Colors.black,
-                    ),
-                    children: [
-                      TextSpan(text: "By continuing, you agree to our "),
-                      TextSpan(
-                        text: "Terms of Service",
-                        style: TextStyle(
-                          color: Color(0xFF346051),
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                      TextSpan(text: " and "),
-                      TextSpan(
-                        text: "Privacy Policy",
-                        style: TextStyle(
-                          color: Color(0xFF346051),
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                      TextSpan(text: "."),
-                    ],
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.white),
                   ),
                 ),
               ),
@@ -216,27 +254,20 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   // 🔹 Text Field builder with controller
-  Widget _buildTextField(
-      String label, String hint, TextEditingController controller) {
+  Widget _buildTextField(String label, String hint, TextEditingController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style:
-          const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.black),
-        ),
+        Text(label, style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.black)),
         const SizedBox(height: 6),
         Container(
           height: 46,
-          decoration: BoxDecoration(
-              color: Colors.white, borderRadius: BorderRadius.circular(8)),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
           child: TextField(
             controller: controller,
             decoration: InputDecoration(
               hintText: hint,
-              hintStyle: const TextStyle(
-                  fontFamily: 'Poppins', fontSize: 14, color: Colors.grey),
+              hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.grey),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
             ),
@@ -247,21 +278,15 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   // 🔹 Password Field builder with controller
-  Widget _buildPasswordField(
-      String label, bool isPassword, TextEditingController controller) {
+  Widget _buildPasswordField(String label, bool isPassword, TextEditingController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style:
-          const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.black),
-        ),
+        Text(label, style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: Colors.black)),
         const SizedBox(height: 6),
         Container(
           height: 46,
-          decoration: BoxDecoration(
-              color: Colors.white, borderRadius: BorderRadius.circular(8)),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
           child: TextField(
             controller: controller,
             obscureText: isPassword ? _obscurePassword : _obscureConfirm,
@@ -271,9 +296,7 @@ class _RegisterPageState extends State<RegisterPage> {
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               suffixIcon: IconButton(
                 icon: Icon(
-                  (isPassword ? _obscurePassword : _obscureConfirm)
-                      ? Icons.visibility_off
-                      : Icons.visibility,
+                  (isPassword ? _obscurePassword : _obscureConfirm) ? Icons.visibility_off : Icons.visibility,
                   color: Colors.grey,
                 ),
                 onPressed: () {
