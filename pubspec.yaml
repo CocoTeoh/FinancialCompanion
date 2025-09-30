@@ -1,11 +1,7 @@
 name: financial_companion
 description: "A new Flutter project."
+publish_to: 'none'
 
-# The following line prevents the package from being accidentally published to
-# pub.dev using flutter pub publish. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
-
-# Version and build number
 version: 1.0.0+1
 
 environment:
@@ -15,12 +11,15 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Cupertino icons for iOS style
+  # UI + utils
   cupertino_icons: ^1.0.8
+  flutter_svg: ^2.0.7
+  table_calendar: ^3.0.9
+
+  # Firebase
   firebase_core: ^4.1.0
   firebase_auth: ^6.0.2
   cloud_firestore: ^6.0.1
-  table_calendar: ^3.0.9
 
 dev_dependencies:
   flutter_test:
@@ -31,10 +30,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/
-
-
-
+    - assets/        # includes assets/images/ and anything under assets/
 
   fonts:
     - family: Poppins
@@ -44,4 +40,3 @@ flutter:
           weight: 700
         - asset: lib/fonts/Poppins-Italic.ttf
           style: italic
-

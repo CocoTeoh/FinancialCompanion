@@ -89,7 +89,6 @@ class _RegisterPageState extends State<RegisterPage> {
         });
       }
 
-      // 🔔 Send verification email
       await cred.user?.sendEmailVerification();
 
       if (!mounted) return;

@@ -8,8 +8,6 @@ import 'home_page.dart';
 import 'pet_page.dart';
 import 'profile_page.dart';
 
-/// Persistent shell that owns the bottom nav bar.
-/// Tabs: 0=Course, 1=Finance, 2=Home, 3=Pet, 4=Profile
 class MainShell extends StatefulWidget {
   final int initialIndex; // default start on Home (2)
   const MainShell({super.key, this.initialIndex = 2});
@@ -19,22 +17,21 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  late int _current; // selected tab index
+  late int _current;
 
   // Keep pages alive when switching tabs
-  // (replace with your real pages if these are placeholders)
   late final List<Widget> _pages = const [
     CoursePage(),
     FinancePage(),
     HomePage(),
-    PetPage(),
+    PetPage(),     // PetPage handles its own SafeArea (top only)
     ProfilePage(),
   ];
 
   @override
   void initState() {
     super.initState();
-    _current = widget.initialIndex; // start on the tab you pass in
+    _current = widget.initialIndex;
   }
 
   Widget _navItem({
@@ -62,23 +59,30 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Let the BODY render behind the bottom nav (so SVG can show underneath)
+      extendBody: true,
+
+      // Optional: if you ever add an AppBar on pages, this lets body draw under it too
+      extendBodyBehindAppBar: true,
+
+      // This background color is mostly hidden; your pages draw their own bg.
       backgroundColor: const Color(0xFF8EBB87),
 
-      // Page body swaps while keeping state
-      body: SafeArea(
-        child: IndexedStack(
-          index: _current,
-          children: _pages,
-        ),
+      // IMPORTANT: no SafeArea here.
+      // Each page (PetPage, etc.) should add its own SafeArea/padding as needed.
+      body: IndexedStack(
+        index: _current,
+        children: _pages,
       ),
 
-      // Bottom menu bar with your asset icons
       bottomNavigationBar: Container(
         height: 64,
         decoration: const BoxDecoration(
           color: Color(0xFF5E8A76),
           borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
         ),
+        // Helps the rounded top corners look crisp over the page content
+        clipBehavior: Clip.antiAlias,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
