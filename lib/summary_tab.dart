@@ -486,7 +486,7 @@ class _OverviewCard extends StatelessWidget {
   }
 }
 
-// ====================== small data containers ======================
+// small data containers
 class _Totals {
   final double income;
   final double expense;
