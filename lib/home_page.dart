@@ -75,7 +75,7 @@ class _HomePageState extends State<HomePage> {
             final balance = max(0.0, budget - spent);
 
             return ListView(
-              padding: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.fromLTRB(0, 30, 0, 16),
               children: [
                 const SizedBox(height: 12),
 
@@ -574,7 +574,7 @@ class _CourseCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 86,
+      height: 88,
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(

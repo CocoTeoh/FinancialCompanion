@@ -33,12 +33,14 @@ class _FinancePageState extends State<FinancePage> {
             Expanded(
               child: IndexedStack(
                 index: _current.index,
-                children: const [
-                  GoalsTab(),
-                  AccountsTab(),
-                  AssistantTab(),
-                  SummaryTab(),
-                  CalendarTab(),
+                // Remove the top-level `const` so non-const widgets are allowed
+                children: [
+                  // Use `const` per-item only if the constructor is const
+                  const GoalsTab(),
+                  const AccountsTab(),
+                  const AssistantTab(),
+                  const SummaryTab(),
+                  const CalendarTab(),
                 ],
               ),
             ),
@@ -75,8 +77,16 @@ class _TopIconBar extends StatelessWidget {
               width: 58, height: 58,
               decoration: BoxDecoration(
                 color: Colors.white, shape: BoxShape.circle,
-                border: selected ? Border.all(color: const Color(0xFF264E3C), width: 2) : null,
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(.1), blurRadius: 8, offset: const Offset(0,3))],
+                border: selected
+                    ? Border.all(color: const Color(0xFF264E3C), width: 2)
+                    : null,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  )
+                ],
               ),
               alignment: Alignment.center,
               child: Image.asset(it.$2, width: 24, height: 24),

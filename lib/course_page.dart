@@ -76,13 +76,19 @@ class QuizQuestion {
 }
 
 class CoursePage extends StatefulWidget {
-  const CoursePage({super.key});
+  final String? highlightCourseId;
+  const CoursePage({super.key, this.highlightCourseId});
+
 
   @override
   State<CoursePage> createState() => _CoursePageState();
 }
 
 class _CoursePageState extends State<CoursePage> {
+  final ScrollController _scrollController = ScrollController();
+  final Map<String, GlobalKey> _courseKeys = {};
+  bool _didScroll = false;
+
   String? _selectedCategory; // null = all
   bool _showFavoritesOnly = false;
   Course? _activeCourse; // for sheet
@@ -270,9 +276,12 @@ class _CoursePageState extends State<CoursePage> {
   }
 
   Widget _buildCourseCard(Course course) {
-    return GestureDetector(
-      onTap: () => _openCourse(course),
-      child: Container(
+    final key = _courseKeys[course.id] ??= GlobalKey();
+    return Container(
+        key: key,
+        child: GestureDetector(
+          onTap: () => _openCourse(course),
+          child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -344,7 +353,7 @@ class _CoursePageState extends State<CoursePage> {
           ],
         ),
       ),
-    );
+    ));
   }
 
   // ---------- QUIZ VIEWS ----------
@@ -856,9 +865,6 @@ class _CoursePageState extends State<CoursePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF8EBB87),
-
-
-
       body: SafeArea(
         child: FutureBuilder<DocumentSnapshot>(
           future: FirebaseFirestore.instance
@@ -929,6 +935,22 @@ class _CoursePageState extends State<CoursePage> {
 
                   return true;
                 }).toList();
+
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!_didScroll && widget.highlightCourseId != null) {
+                    final key = _courseKeys[widget.highlightCourseId];
+                    if (key?.currentContext != null) {
+                      _didScroll = true;
+                      Scrollable.ensureVisible(
+                        key!.currentContext!,
+                        duration: const Duration(milliseconds: 600),
+                        curve: Curves.easeInOut,
+                      );
+                      setState(() => _activeCourse =
+                          filtered.firstWhere((c) => c.id == widget.highlightCourseId));
+                    }
+                  }
+                });
 
                 return Stack(
                   children: [

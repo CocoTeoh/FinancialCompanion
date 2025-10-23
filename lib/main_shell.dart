@@ -9,8 +9,14 @@ import 'pet_page.dart';
 import 'profile_page.dart';
 
 class MainShell extends StatefulWidget {
-  final int initialIndex; // default start on Home (2)
-  const MainShell({super.key, this.initialIndex = 2});
+  final int initialIndex;
+  final String? highlightCourseId;
+
+  const MainShell({
+    super.key,
+    this.initialIndex = 2,
+    this.highlightCourseId,
+  });
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -18,20 +24,21 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   late int _current;
-
-  // Keep pages alive when switching tabs
-  late final List<Widget> _pages = const [
-    CoursePage(),
-    FinancePage(),
-    HomePage(),
-    PetPage(),     // PetPage handles its own SafeArea (top only)
-    ProfilePage(),
-  ];
+  late List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
     _current = widget.initialIndex;
+
+    // 👇 Build pages AFTER highlightCourseId is available
+    _pages = [
+      CoursePage(highlightCourseId: widget.highlightCourseId),
+      const FinancePage(),
+      const HomePage(),
+      const PetPage(), // PetPage handles its own SafeArea (top only)
+      const ProfilePage(),
+    ];
   }
 
   Widget _navItem({
@@ -59,17 +66,10 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Let the BODY render behind the bottom nav (so SVG can show underneath)
       extendBody: true,
-
-      // Optional: if you ever add an AppBar on pages, this lets body draw under it too
       extendBodyBehindAppBar: true,
-
-      // This background color is mostly hidden; your pages draw their own bg.
       backgroundColor: const Color(0xFF8EBB87),
 
-      // IMPORTANT: no SafeArea here.
-      // Each page (PetPage, etc.) should add its own SafeArea/padding as needed.
       body: IndexedStack(
         index: _current,
         children: _pages,
@@ -81,7 +81,6 @@ class _MainShellState extends State<MainShell> {
           color: Color(0xFF5E8A76),
           borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
         ),
-        // Helps the rounded top corners look crisp over the page content
         clipBehavior: Clip.antiAlias,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
