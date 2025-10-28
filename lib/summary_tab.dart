@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'course_page.dart' show UserPetAvatar;
+
 
 enum _Period { weekly, monthly, yearly }
 
@@ -201,11 +203,8 @@ class _HeaderWithCat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cat = Image.asset(
-      'assets/cat.png',
-      height: 84,
-      errorBuilder: (_, __, ___) => const Text('🐱', style: TextStyle(fontSize: 18)),
-    );
+    final cat = const UserPetAvatar(size: 84);
+
 
     // Keep bubble width reasonable so it wraps nicely
     final maxBubbleWidth = MediaQuery.of(context).size.width * 0.70;

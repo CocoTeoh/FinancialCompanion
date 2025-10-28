@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'pet_item_image_mapper.dart';
 import 'item.dart';
@@ -11,41 +12,41 @@ import 'pantry_dialog.dart';
 
 class PetPage extends StatefulWidget {
   const PetPage({super.key});
-
   @override
   State<PetPage> createState() => _PetPageState();
 }
 
 class _PetPageState extends State<PetPage> {
+  // --- Pet state ---
+  String petType = 'Other';                 // 'Cat' when the chosen pet is cat1, otherwise 'Other'
+  String? wornItem;                         // outfits (cat only)
+  String _basePetAsset = 'assets/default_pet.png'; // raw asset from Firestore for the chosen pet
+  String selectedPetImage = 'assets/default_pet.png'; // actually displayed image
+
+  // --- User / coins / mood ---
   int petCoinBalance = 0;
+  int happiness = 2; // 0–4 hearts
 
-  String selectedItemName = 'Cat';
-  String petType = 'Cat';
-  String selectedPetImage = 'assets/cat.png';
-  String? wornItem;
-
-  // 0–4 hearts
-  int happiness = 2;
-
-  // TODO: replace with FirebaseAuth.instance.currentUser!.uid
-  String userId = "R16tiInPTlDCWzeR83JB";
+  String get userId => FirebaseAuth.instance.currentUser!.uid;
 
   final List<Item> purchasedItems = [];
 
   @override
   void initState() {
     super.initState();
-    updatePetImage();
+    _ensurePetCoinsField();
     _listenPetCoins();
+    _listenChosenPet(); // <- pulls the selected pet like CoursePage does
   }
 
-  void updatePetImage() {
-    setState(() {
-      selectedPetImage = PetItemImageMapper.getImageResource(
-        petType,
-        selectedItemName,
-      );
-    });
+  // ------------------ Firestore helpers ------------------
+
+  Future<void> _ensurePetCoinsField() async {
+    final ref = FirebaseFirestore.instance.collection('users').doc(userId);
+    final snap = await ref.get();
+    if (!snap.exists || !(snap.data() ?? {}).containsKey('pet_coins')) {
+      await ref.set({'pet_coins': 0}, SetOptions(merge: true));
+    }
   }
 
   void _listenPetCoins() {
@@ -54,18 +55,99 @@ class _PetPageState extends State<PetPage> {
         .doc(userId)
         .snapshots()
         .listen((doc) {
-      if (doc.exists && doc.data()!.containsKey('pet_coins')) {
-        setState(() => petCoinBalance = doc['pet_coins']);
+      if (!mounted) return;
+      final data = doc.data();
+      if (doc.exists && data != null && data.containsKey('pet_coins')) {
+        setState(() => petCoinBalance = (data['pet_coins'] ?? 0) as int);
       }
     });
   }
 
+  /// Listen to the chosen pet like in CoursePage:
+  /// users/{uid}/userPet/current { asset: 'assets/pets/dog1.png', key: 'dog1' }
+  void _listenChosenPet() {
+    FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('userPet')
+        .doc('current')
+        .snapshots()
+        .listen((doc) {
+      if (!mounted || !doc.exists) return;
+
+      final data = doc.data();
+      final asset = (data?['asset'] ?? '').toString().trim(); // e.g., assets/pets/dog1.png
+      final key   = (data?['key']   ?? '').toString().trim(); // e.g., cat1
+
+      final fileName = asset.split('/').isNotEmpty
+          ? asset.split('/').last.toLowerCase()
+          : asset.toLowerCase();
+
+      final isCat = fileName == 'cat1.png' || key.toLowerCase() == 'cat1';
+
+      setState(() {
+        _basePetAsset = asset.isNotEmpty ? asset : 'assets/default_pet.png';
+        petType = isCat ? 'Cat' : 'Other';
+        if (petType != 'Cat') {
+          // outfits are cat-only
+          wornItem = null;
+        }
+        _refreshDisplayedPet();
+      });
+
+      // DEBUG: uncomment to verify
+      // print('Chosen pet -> asset: $_basePetAsset | key: $key | petType: $petType');
+    });
+  }
+
+  /// Recompute the actual image to display.
+  /// - If Cat: use mapper (respecting wornItem).
+  /// - Otherwise: display the raw chosen asset from Firestore.
+  void _refreshDisplayedPet() {
+    if (petType == 'Cat') {
+      final item = wornItem ?? 'Cat'; // base cat
+      selectedPetImage = PetItemImageMapper.getImageResource('Cat', item);
+    } else {
+      selectedPetImage = _basePetAsset;
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// One-time dev grant (+500 coins). Long-press the coin card to trigger.
+  Future<void> _grantTestCoinsOnce() async {
+    final userRef = FirebaseFirestore.instance.collection('users').doc(userId);
+
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      final snap = await tx.get(userRef);
+      final data = (snap.data() ?? {}) as Map<String, dynamic>;
+      final done = (data['dev_grant500_done'] ?? false) as bool;
+      if (done) return; // already granted once
+
+      tx.set(
+        userRef,
+        {
+          'pet_coins': FieldValue.increment(500),
+          'dev_grant500_done': true,
+        },
+        SetOptions(merge: true),
+      );
+    });
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Granted +500 coins (dev test).')),
+    );
+  }
+
+  /// Atomic add (safe for concurrent updates)
   Future<void> addPetCoins(int amount) async {
     await FirebaseFirestore.instance
         .collection('users')
         .doc(userId)
-        .update({'pet_coins': petCoinBalance + amount});
+        .set({'pet_coins': FieldValue.increment(amount)}, SetOptions(merge: true));
   }
+
+  // ------------------ Dialogs / actions ------------------
 
   void showStoreItemsDialog() {
     showDialog(
@@ -77,21 +159,25 @@ class _PetPageState extends State<PetPage> {
     );
   }
 
-  void onItemWear(String newImage, String? itemName) {
-    setState(() {
-      selectedPetImage = newImage;
-      wornItem = itemName;
-    });
-  }
-
   void showInventoryDialog() {
+    if (petType != 'Cat') {
+      _toast('Wardrobe is for the cat only 🙂');
+      return;
+    }
     showDialog(
       context: context,
       builder: (context) => InventoryDialog(
         userId: userId,
-        petType: petType,
+        petType: 'Cat',
         wornItem: wornItem,
-        onItemWear: (newImage, itemName) => onItemWear(newImage, itemName),
+        onItemWear: (newImage, itemName) {
+          // Inventory passes the composed image for cat, but we keep the
+          // mapper API to stay consistent.
+          setState(() {
+            wornItem = itemName;
+            _refreshDisplayedPet();
+          });
+        },
       ),
     );
   }
@@ -103,8 +189,11 @@ class _PetPageState extends State<PetPage> {
         userId: userId,
         onFeed: (itemName) {
           setState(() {
-            selectedPetImage =
-                PetItemImageMapper.getImageResource(petType, petType);
+            // Feeding resets to base look for cat; for other pets keep chosen asset.
+            if (petType == 'Cat') {
+              wornItem = null;
+              _refreshDisplayedPet();
+            }
             if (happiness < 4) happiness += 1;
           });
         },
@@ -112,23 +201,20 @@ class _PetPageState extends State<PetPage> {
     );
   }
 
+  // ------------------ UI ------------------
+
   @override
   Widget build(BuildContext context) {
-    // If your parent Scaffold has a bottomNavigationBar, set:
-    // Scaffold(extendBody: true, extendBodyBehindAppBar: true, ...)
-    // so the background can render under the bars.
-
-    // Height of your bottom menu (adjust if yours differs)
     const double bottomBarHeight = 64.0;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,        // show SVG under status bar
-        statusBarIconBrightness: Brightness.dark,  // pick to match your bg
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
       ),
       child: Stack(
         children: [
-          // ---- Full-bleed background (under status + bottom bars)
+          // Background illustration
           Positioned.fill(
             child: SvgPicture.asset(
               'assets/pet-bg.svg',
@@ -136,14 +222,14 @@ class _PetPageState extends State<PetPage> {
             ),
           ),
 
-          // ---- Foreground content: respect only top safe area; we pad the bottom ourselves
+          // Foreground content
           SafeArea(
             top: true,
             bottom: false,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16).copyWith(
                 top: 16,
-                bottom: bottomBarHeight + 12, // keep content above bottom menu
+                bottom: bottomBarHeight + 12, // keep above bottom nav
               ),
               child: Column(
                 children: [
@@ -158,7 +244,7 @@ class _PetPageState extends State<PetPage> {
 
                   const SizedBox(height: 12),
 
-                  // Pet image area (anchored near bottom of the available space)
+                  // Pet image area (anchored near bottom of available space)
                   Expanded(
                     child: Align(
                       alignment: Alignment.bottomCenter,
@@ -194,46 +280,43 @@ class _PetPageState extends State<PetPage> {
     );
   }
 
-  // ----- UI pieces -----
+  // ----- small UI pieces -----
 
   Widget _petCoinsWidget() {
-    return Container(
-      margin: const EdgeInsets.only(left: 16),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF317D35), width: 2),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(2, 2)),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Image.asset('assets/pet-coin.png', width: 50, height: 50),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "Pet Coins",
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                "$petCoinBalance Coins",
-                style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black),
-              ),
-            ],
-          ),
-        ],
+    return GestureDetector(
+      onLongPress: _grantTestCoinsOnce, // dev-only booster
+      child: Container(
+        margin: const EdgeInsets.only(left: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF317D35), width: 2),
+          boxShadow: const [
+            BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(2, 2)),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset('assets/pet-coin.png', width: 50, height: 50),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Pet Coins",
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  "$petCoinBalance",
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.black),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -255,8 +338,7 @@ class _PetPageState extends State<PetPage> {
         children: [
           const Text(
             "Happiness",
-            style: TextStyle(
-                fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
           ),
           const SizedBox(height: 4),
           Row(
@@ -299,5 +381,10 @@ class _PetPageState extends State<PetPage> {
         ),
       ),
     );
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 }

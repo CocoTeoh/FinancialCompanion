@@ -7,7 +7,8 @@ import 'main_shell.dart';
 import 'course_page.dart'; // --- IMPORTING THIS FILE NOW ---
 
 // --- IMPORTANT ---
-const String _apiKey = 'API_KEY_HERE';
+const String _apiKey = 'API HERE';
+
 
 // --- Date Helpers (from GoalsTab) ---
 String _periodOf(DateTime d) =>
@@ -47,6 +48,7 @@ class _AssistantTabState extends State<AssistantTab> {
     super.initState();
 
     _userId = FirebaseAuth.instance.currentUser?.uid;
+    _ensureDefaultPet();
 
     // --- This is the new System Instruction Text ---
     // We are telling the AI to expect user data and to
@@ -129,6 +131,25 @@ class _AssistantTabState extends State<AssistantTab> {
       // Handle error, maybe show a snackbar
     }
   }
+
+  Future<void> _ensureDefaultPet() async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final ref = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('userPet')
+        .doc('current');
+    final snap = await ref.get();
+    if (!snap.exists) {
+      await ref.set({
+        'name': 'Mr. Kitty',
+        'key': 'cat1',
+        'asset': 'assets/pets/cat1.png',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
 
   /// --- THIS IS THE IMPLEMENTED FUNCTION ---
   /// Fetches real financial data from Firestore
@@ -463,64 +484,71 @@ class _ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ... (This build method is unchanged) ...
     final isUser = message.fromUser;
-    final align = isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+
+    // Visuals
     final bubbleColor = isUser ? const Color(0xFF264E3C) : Colors.white;
     final textColor = isUser ? Colors.white : const Color(0xFF1B1E23);
 
+    // Bubble widget (shared)
+    Widget bubble = Container(
+      margin: EdgeInsets.only(left: isUser ? 48 : 0, right: isUser ? 0 : 48),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: bubbleColor,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(14),
+          topRight: const Radius.circular(14),
+          bottomLeft: Radius.circular(isUser ? 14 : 4),  // slight "tail"
+          bottomRight: Radius.circular(isUser ? 4 : 14), // slight "tail"
+        ),
+        boxShadow: isUser
+            ? null
+            : [
+          BoxShadow(
+            color: Colors.black.withOpacity(.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          )
+        ],
+        border: isUser ? null : Border.all(color: const Color(0xFFE6E9EE)),
+      ),
+      child: Text(
+        message.text,
+        style: TextStyle(color: textColor, height: 1.35),
+      ),
+    );
+
+    // Row layout:
+    // - Assistant: [pet][gap][bubble]
+    // - User:                [bubble] (right aligned)
     return Column(
-      crossAxisAlignment: align,
+      crossAxisAlignment:
+      isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
         if (isFirstOfGroup) const SizedBox(height: 6),
         Row(
           mainAxisAlignment:
           isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Flexible(
-              child: Container(
-                margin: EdgeInsets.only(
-                    left: isUser ? 48 : 0, right: isUser ? 0 : 48),
-                padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: bubbleColor,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(14),
-                    topRight: const Radius.circular(14),
-                    bottomLeft:
-                    Radius.circular(isUser ? 14 : 4), // slight "tail"
-                    bottomRight:
-                    Radius.circular(isUser ? 4 : 14), // slight "tail"
-                  ),
-                  boxShadow: isUser
-                      ? null
-                      : [
-                    BoxShadow(
-                        color: Colors.black.withOpacity(.06),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2))
-                  ],
-                  border: isUser
-                      ? null
-                      : Border.all(color: const Color(0xFFE6E9EE)),
-                ),
-                child: Text(
-                  message.text,
-                  style: TextStyle(color: textColor, height: 1.35),
-                ),
-              ),
-            ),
+            if (!isUser) ...[
+              const UserPetAvatar(size: 40), // small pet icon
+              const SizedBox(width: 6),
+            ],
+            Flexible(child: bubble),
           ],
         ),
-        // --- UPDATED ---
-        // This widget is now passed List<Course>
+
+        // Course suggestions under assistant bubbles (unchanged)
         if (!isUser && (message.courses?.isNotEmpty ?? false))
           _CourseSuggestions(courses: message.courses!),
+
         const SizedBox(height: 8),
       ],
     );
   }
+
 }
 
 // --- UPDATED ---

@@ -5,13 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 
-/// =============================================================
-///  GOALS TAB (defaults + Firestore categories)
-///  - Default chips: Entertainment, Food, Groceries, Transport
-///  - Category Manager: add/rename/delete/recolor
-///  - NO inline “+ Add new category”
-///  - Chips update live via StreamBuilder
-/// =============================================================
 class GoalsTab extends StatefulWidget {
   const GoalsTab({super.key});
   @override
@@ -19,7 +12,7 @@ class GoalsTab extends StatefulWidget {
 }
 
 class _GoalsTabState extends State<GoalsTab> {
-  // Defaults (no Salary here)
+  // Defaults shown as chips (icon/color come from _visualFor/_chipColor)
   final List<String> _baseCategories = const [
     'Entertainment', 'Food', 'Groceries', 'Transport'
   ];
@@ -57,13 +50,11 @@ class _GoalsTabState extends State<GoalsTab> {
     final name = rawName.trim();
     if (name.isEmpty) return;
 
-    // block duplicates vs defaults
     final defaultsLower = _baseCategories.map((e) => e.toLowerCase()).toSet();
     if (defaultsLower.contains(_slug(name))) {
       _toast('Category already exists'); return;
     }
 
-    // doc id = slug to dedupe
     final id = _slug(name);
     final ref = _catCol.doc(id);
     if ((await ref.get()).exists) {
@@ -142,10 +133,11 @@ class _GoalsTabState extends State<GoalsTab> {
   void _listenTransactionsThisMonth() {
     _txSub?.cancel();
     final start = _monthStart(_now);
-    final end = _monthEnd(_now);
+    final nextMonthStart = DateTime(_now.year, _now.month + 1, 1);
+
     _txSub = _txCol
         .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(_dateKey(start)))
-        .where('date', isLessThanOrEqualTo: Timestamp.fromDate(_dateKey(end)))
+        .where('date', isLessThan: Timestamp.fromDate(_dateKey(nextMonthStart)))
         .snapshots()
         .listen((snap) {
       final map = <String, double>{};
@@ -201,14 +193,13 @@ class _GoalsTabState extends State<GoalsTab> {
     });
   }
 
-  // ---------- CRUD ----------
+  // ---------- CRUD (NO NOTES) ----------
   Future<void> _addBudget({
-    required String label, required String category,
-    required String notes, required double amount,
+    required String label, required String category, required double amount,
   }) async {
     try {
       await _budgetsCol.add({
-        'label': label,'category': category,'notes': notes,'amount': amount,
+        'label': label,'category': category,'amount': amount,
         'period': _periodKey,'createdAt': FieldValue.serverTimestamp(),
       });
       _toast('Budget added');
@@ -216,12 +207,11 @@ class _GoalsTabState extends State<GoalsTab> {
   }
 
   Future<void> _updateBudget(_Budget b,{
-    required String label, required String category,
-    required String notes, required double amount,
+    required String label, required String category, required double amount,
   }) async {
     try {
       await _budgetsCol.doc(b.id).update({
-        'label': label,'category': category,'notes': notes,'amount': amount,
+        'label': label,'category': category,'amount': amount,
       });
       _toast('Budget updated');
     } catch (e) { _toast('Failed to update budget: $e'); }
@@ -233,12 +223,11 @@ class _GoalsTabState extends State<GoalsTab> {
   }
 
   Future<void> _addGoal({
-    required String label, required String category,
-    required String notes, required double goalAmount,
+    required String label, required String category, required double goalAmount,
   }) async {
     try {
       await _goalsCol.add({
-        'label': label,'category': category,'notes': notes,'goalAmount': goalAmount,
+        'label': label,'category': category,'goalAmount': goalAmount,
         'period': _periodKey,'awarded': false,'createdAt': FieldValue.serverTimestamp(),
       });
       _toast('Goal added');
@@ -246,12 +235,11 @@ class _GoalsTabState extends State<GoalsTab> {
   }
 
   Future<void> _updateGoal(_Goal g,{
-    required String label, required String category,
-    required String notes, required double goalAmount,
+    required String label, required String category, required double goalAmount,
   }) async {
     try {
       await _goalsCol.doc(g.id).update({
-        'label': label,'category': category,'notes': notes,'goalAmount': goalAmount,
+        'label': label,'category': category,'goalAmount': goalAmount,
       });
       _toast('Goal updated');
     } catch (e) { _toast('Failed to update goal: $e'); }
@@ -265,22 +253,30 @@ class _GoalsTabState extends State<GoalsTab> {
   // ---------- award coins ----------
   Future<void> _checkAndAwardCoins() async {
     final end = _monthEnd(_now);
-    final bool monthEnded = DateTime.now().isAfter(DateTime(end.year, end.month, end.day, 23, 59, 59));
+    final bool monthEnded = DateTime.now().isAfter(
+      DateTime(end.year, end.month, end.day, 23, 59, 59),
+    );
+
     for (final g in _goals.where((x) => !x.awarded)) {
       final b = _budgets.firstWhere(
             (e) => e.category.toLowerCase() == g.category.toLowerCase(),
         orElse: () => _Budget.empty(),
       );
       if (b.isEmpty) continue;
+
       final spent = _spendByCategory[g.category.toLowerCase()] ?? 0.0;
       final notOverspent = spent <= b.amount;
+
       if (monthEnded && notOverspent) {
-        final int coins = max(1, (b.amount / g.goalAmount).ceil());
+        final double safeGoal = (g.goalAmount <= 0) ? 1.0 : g.goalAmount;
+        final int coins = max(1, (b.amount / safeGoal).ceil());
+
         await FirebaseFirestore.instance.runTransaction((tx) async {
           final snap = await tx.get(_userDoc);
           final current = (snap.data()?['pet_coins'] ?? 0) as int;
           tx.update(_userDoc, {'pet_coins': current + coins});
         });
+
         await _goalsCol.doc(g.id).update({'awarded': true});
       }
     }
@@ -292,14 +288,31 @@ class _GoalsTabState extends State<GoalsTab> {
     return ListView(
       padding: const EdgeInsets.only(bottom: 16),
       children: [
+        // 1) Pet + speech bubble (reads from users/{uid}/userPet/current)
+        StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: _userDoc.collection('userPet').doc('current').snapshots(),
+          builder: (context, snap) {
+            if (!snap.hasData || !snap.data!.exists) return const SizedBox.shrink();
+            final data = snap.data!.data()!;
+            final petImage = (data['asset'] ?? '').toString().trim();
+            if (petImage.isEmpty) return const SizedBox.shrink();
+            return _PetNudgeRow(petImagePath: petImage);
+          },
+        ),
+
+
+        // 2) Budgets header + “Daily”
         _SectionHeader(
           title: 'Budgets',
+          subtitle: 'Daily',
           trailing: TextButton.icon(
             onPressed: () => _openBudgetSheet(context),
             icon: const Icon(Icons.add, color: Color(0xFF214235)),
             label: const Text('Add new', style: TextStyle(color: Color(0xFF214235))),
           ),
         ),
+
+        // 3) Budget cards
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(
@@ -310,7 +323,8 @@ class _GoalsTabState extends State<GoalsTab> {
                 keyValue: 'budget-${b.id}',
                 onConfirmDelete: () => _deleteBudget(b.id),
                 child: _BudgetTile(
-                  label: b.label, category: b.category, notes: b.notes,
+                  label: b.label,
+                  category: b.category,              // icons/colors follow category
                   spent: spent, budget: b.amount, percent: pct,
                   onTap: () => _openBudgetSheet(context, existing: b),
                 ),
@@ -318,15 +332,20 @@ class _GoalsTabState extends State<GoalsTab> {
             }).toList(),
           ),
         ),
+
         const SizedBox(height: 10),
+
+        // 4) Goals header
         _SectionHeader(
           title: 'Goals',
           trailing: TextButton.icon(
             onPressed: () => _openGoalSheet(context),
             icon: const Icon(Icons.add, color: Color(0xFF214235)),
-            label: const Text('Add new', style: TextStyle(color:  Color(0xFF214235))),
+            label: const Text('Add new', style: TextStyle(color: Color(0xFF214235))),
           ),
         ),
+
+        // 5) Goals cards
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(
@@ -335,33 +354,44 @@ class _GoalsTabState extends State<GoalsTab> {
                     (b) => b.category.toLowerCase() == g.category.toLowerCase(),
                 orElse: () => _Budget.empty(),
               );
-              if (budget.isEmpty) {
-                return _DismissibleCard(
-                  keyValue: 'goal-${g.id}',
-                  onConfirmDelete: () => _deleteGoal(g.id),
-                  child: _GoalTile(
-                    label: g.label, notes: g.notes,
-                    status: _GoalStatus.inProgress, percent: 0.5,
-                    onTap: () => _openGoalSheet(context, existing: g),
-                  ),
-                );
-              }
               final spent = _spendByCategory[g.category.toLowerCase()] ?? 0.0;
-              final notOverspent = spent <= budget.amount;
-              final pct = (budget.amount <= 0) ? 1.0 : (spent / budget.amount).clamp(0.0, 1.0);
+              final total = budget.amount;
               final end = _monthEnd(_now);
-              final monthOver = DateTime.now().isAfter(DateTime(end.year, end.month, end.day, 23, 59, 59));
-              final status = !notOverspent ? _GoalStatus.overspent : (monthOver ? _GoalStatus.reached : _GoalStatus.inProgress);
+              final monthEnded = DateTime.now().isAfter(DateTime(end.year, end.month, end.day, 23, 59, 59));
+              final overspent = total > 0 ? spent > total : spent > 0;
+
+// progress shown on the yellow ring while in-progress
+              final progress = (total <= 0) ? 0.0 : (spent / total).clamp(0.0, 1.0);
+
+// decide status
+              late final _GoalStatus status;
+              if (overspent) {
+                status = _GoalStatus.overspent; // red
+              } else if (monthEnded && !overspent) {
+                status = _GoalStatus.reached;   // green
+              } else {
+                status = _GoalStatus.inProgress; // yellow
+              }
+
+// ring fill rule
+              final ringValue = switch (status) {
+                _GoalStatus.overspent => 1.0,         // FULL RED ring when failed
+                _GoalStatus.inProgress => progress,   // partial yellow ring = spent/budget
+                _GoalStatus.reached => 1.0,           // FULL GREEN ring when success
+              };
 
               return _DismissibleCard(
                 keyValue: 'goal-${g.id}',
                 onConfirmDelete: () => _deleteGoal(g.id),
                 child: _GoalTile(
-                  label: g.label, notes: g.notes, status: status,
-                  percent: status == _GoalStatus.reached ? 1.0 : pct,
+                  category: g.category,
+                  label: g.label,
+                  status: status,
+                  percent: ringValue,
                   onTap: () => _openGoalSheet(context, existing: g),
                 ),
               );
+
             }).toList(),
           ),
         ),
@@ -372,7 +402,6 @@ class _GoalsTabState extends State<GoalsTab> {
   // ---------- sheets ----------
   Future<void> _openBudgetSheet(BuildContext context, { _Budget? existing }) async {
     final labelCtrl = TextEditingController(text: existing?.label ?? '');
-    final notesCtrl = TextEditingController(text: existing?.notes ?? '');
     final amountCtrl = TextEditingController(text: existing == null ? '' : existing.amount.toStringAsFixed(2));
     final selectedCats = <String>{existing?.category ?? 'Food'};
 
@@ -384,7 +413,7 @@ class _GoalsTabState extends State<GoalsTab> {
       builder: (ctx) {
         return _GoalFormSheet(
           title: existing == null ? 'Add New Budget' : 'Edit Budget',
-          titleCtrl: labelCtrl, notesCtrl: notesCtrl, amountCtrl: amountCtrl,
+          titleCtrl: labelCtrl, amountCtrl: amountCtrl,
           baseCategories: _baseCategories, selectedCats: selectedCats,
           categoriesStream: _catCol.orderBy('name').snapshots(),
           submitButtonText: existing == null ? 'Add Budget' : 'Save changes',
@@ -406,13 +435,12 @@ class _GoalsTabState extends State<GoalsTab> {
           },
           onSubmit: () async {
             final label = labelCtrl.text.trim().isEmpty ? 'Budget' : labelCtrl.text.trim();
-            final notes = notesCtrl.text.trim();
             final amt = double.tryParse(amountCtrl.text.trim().replaceAll('RM', '').trim()) ?? 0.0;
             final cat = (selectedCats.isEmpty ? 'Uncategorized' : selectedCats.first);
             if (existing == null) {
-              await _addBudget(label: label, category: cat, notes: notes, amount: amt);
+              await _addBudget(label: label, category: cat, amount: amt);
             } else {
-              await _updateBudget(existing, label: label, category: cat, notes: notes, amount: amt);
+              await _updateBudget(existing, label: label, category: cat, amount: amt);
             }
             if (ctx.mounted) Navigator.pop(ctx);
           },
@@ -423,7 +451,6 @@ class _GoalsTabState extends State<GoalsTab> {
 
   Future<void> _openGoalSheet(BuildContext context, { _Goal? existing }) async {
     final labelCtrl = TextEditingController(text: existing?.label ?? '');
-    final notesCtrl = TextEditingController(text: existing?.notes ?? '');
     final amountCtrl = TextEditingController(text: existing == null ? '' : existing.goalAmount.toStringAsFixed(2));
     final selectedCats = <String>{existing?.category ?? 'Food'};
 
@@ -435,10 +462,10 @@ class _GoalsTabState extends State<GoalsTab> {
       builder: (ctx) {
         return _GoalFormSheet(
           title: existing == null ? 'Add New Goal' : 'Edit Goal',
-          titleCtrl: labelCtrl, notesCtrl: notesCtrl, amountCtrl: amountCtrl,
+          titleCtrl: labelCtrl, amountCtrl: amountCtrl,
           baseCategories: _baseCategories, selectedCats: selectedCats,
           categoriesStream: _catCol.orderBy('name').snapshots(),
-          submitButtonText: existing == null ? 'Add goal' : 'Save changes',
+          submitButtonText: existing == null ? 'Add Goal' : 'Save changes',
           onCreateCategory: _addCategoryIfMissing,
           onManageTap: () => _openManageCategories(ctx),
           onDeleteTap: existing == null ? null : () async {
@@ -457,13 +484,12 @@ class _GoalsTabState extends State<GoalsTab> {
           },
           onSubmit: () async {
             final label = labelCtrl.text.trim().isEmpty ? 'Goal' : labelCtrl.text.trim();
-            final notes = notesCtrl.text.trim();
             final amt = double.tryParse(amountCtrl.text.trim().replaceAll('RM', '').trim()) ?? 0.0;
             final cat = (selectedCats.isEmpty ? 'Uncategorized' : selectedCats.first);
             if (existing == null) {
-              await _addGoal(label: label, category: cat, notes: notes, goalAmount: amt);
+              await _addGoal(label: label, category: cat, goalAmount: amt);
             } else {
-              await _updateGoal(existing, label: label, category: cat, notes: notes, goalAmount: amt);
+              await _updateGoal(existing, label: label, category: cat, goalAmount: amt);
             }
             if (ctx.mounted) Navigator.pop(ctx);
           },
@@ -520,20 +546,20 @@ class _GoalsTabState extends State<GoalsTab> {
   }
 }
 
-/// ===================== Models/UI helpers & shared widgets (same as before) =====================
+/// ===================== Models/UI helpers & shared widgets =====================
 class _Budget {
-  final String id; final String label; final String category; final String notes;
+  final String id; final String label; final String category;
   final double amount; final String period;
-  const _Budget({required this.id, required this.label, required this.category, required this.notes, required this.amount, required this.period});
+  const _Budget({required this.id, required this.label, required this.category, required this.amount, required this.period});
   bool get isEmpty => id.isEmpty;
-  factory _Budget.empty() => const _Budget(id:'', label:'', category:'', notes:'', amount:0, period:'');
+  factory _Budget.empty() => const _Budget(id:'', label:'', category:'', amount:0, period:'');
+
   factory _Budget.fromDoc(DocumentSnapshot<Map<String, dynamic>> d) {
     final m = d.data()!;
     return _Budget(
       id: d.id,
       label: (m['label'] ?? '') as String,
       category: (m['category'] ?? 'Uncategorized') as String,
-      notes: (m['notes'] ?? '') as String,
       amount: (m['amount'] ?? 0).toDouble(),
       period: (m['period'] ?? '') as String,
     );
@@ -541,16 +567,15 @@ class _Budget {
 }
 
 class _Goal {
-  final String id; final String label; final String category; final String notes;
+  final String id; final String label; final String category;
   final double goalAmount; final String period; final bool awarded;
-  const _Goal({required this.id, required this.label, required this.category, required this.notes, required this.goalAmount, required this.period, required this.awarded});
+  const _Goal({required this.id, required this.label, required this.category, required this.goalAmount, required this.period, required this.awarded});
   factory _Goal.fromDoc(DocumentSnapshot<Map<String, dynamic>> d) {
     final m = d.data()!;
     return _Goal(
       id: d.id,
       label: (m['label'] ?? '') as String,
       category: (m['category'] ?? 'Uncategorized') as String,
-      notes: (m['notes'] ?? '') as String,
       goalAmount: (m['goalAmount'] ?? 0).toDouble(),
       period: (m['period'] ?? '') as String,
       awarded: (m['awarded'] ?? false) as bool,
@@ -558,16 +583,179 @@ class _Goal {
   }
 }
 
+class _CatVisual {
+  final IconData fallbackIcon;
+  final Color color;
+  final String? asset;
+  const _CatVisual({required this.fallbackIcon, required this.color, this.asset});
+}
+
+/// icon/color strictly follow **category**
+_CatVisual _visualFor(String category) {
+  final s = category.toLowerCase();
+
+  // hues tuned to your mock
+  const foodColor = Color(0xFF4F6F91);          // blue (food.png)
+  const transportColor = Color(0xFFE38AF7);     // pink (transport.png)
+  const groceriesColor = Color(0xFF53D34F);     // green (grocery.png)
+  const entertainmentColor = Color(0xFF5A28B1); // purple (entertainment.png)
+
+  if (s.contains('transport')) {
+    return const _CatVisual(
+      fallbackIcon: Icons.directions_car,
+      color: transportColor,
+      asset: 'assets/transport.png',
+    );
+  }
+  if (s.contains('food')) {
+    return const _CatVisual(
+      fallbackIcon: Icons.restaurant,
+      color: foodColor,
+      asset: 'assets/food.png',
+    );
+  }
+  if (s.contains('groceries') || s.contains('grocery') || s.contains('market') || s.contains('shop')) {
+    return const _CatVisual(
+      fallbackIcon: Icons.local_grocery_store,
+      color: groceriesColor,
+      asset: 'assets/grocery.png', // <- ensure this filename exists
+    );
+  }
+
+  if (s.contains('entertainment')) {
+    return const _CatVisual(
+      fallbackIcon: Icons.theaters,
+      color: entertainmentColor,
+      asset: 'assets/entertainment.png',
+    );
+  }
+
+  return const _CatVisual(
+    fallbackIcon: Icons.category,
+    color: Color(0xFF94A3B8),
+    asset: null,
+  );
+}
+
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, required this.trailing});
-  final String title; final Widget trailing;
-  @override Widget build(BuildContext context) {
+  const _SectionHeader({
+    required this.title,
+    required this.trailing,
+    this.subtitle,
+  });
+
+  final String title;
+  final String? subtitle;
+  final Widget trailing;
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16,8,16,8),
-      child: Row(children:[
-        Text(title, style: const TextStyle(fontFamily:'Poppins', fontWeight: FontWeight.w700, fontSize:20, color: Color(0xFF214235))),
-        const Spacer(), trailing,
-      ]),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.w700,
+                  fontSize: 22,
+                  color: Color(0xFF214235),
+                  height: 1.1,
+                ),
+              ),
+              const Spacer(),
+              trailing,
+            ],
+          ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle!,
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF214235),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PetNudgeRow extends StatelessWidget {
+  const _PetNudgeRow({required this.petImagePath});
+  final String petImagePath;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const _SpeechBubble(), // bottom-right corner is square
+          const SizedBox(width: 8),
+          _PetSticker(imagePath: petImagePath),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpeechBubble extends StatelessWidget {
+  const _SpeechBubble();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F7F4),
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(16),
+          topRight: Radius.circular(16),
+          bottomLeft: Radius.circular(16),
+          bottomRight: Radius.zero, // 👈 squared corner
+        ),
+        boxShadow: const [BoxShadow(blurRadius: 6, offset: Offset(0, 2), color: Colors.black12)],
+      ),
+      child: const Text(
+        'You can do it!',
+        style: TextStyle(
+          fontFamily: 'Poppins',
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+          color: Color(0xFF214235),
+        ),
+      ),
+    );
+  }
+}
+
+class _PetSticker extends StatelessWidget {
+  const _PetSticker({required this.imagePath});
+  final String imagePath;
+  bool get _isNetwork => imagePath.startsWith('http://') || imagePath.startsWith('https://');
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = const CircleAvatar(radius: 16, child: Icon(Icons.pets, size: 18));
+    if (imagePath.isEmpty) return fallback;
+
+    return SizedBox(
+      width: 80,
+      height: 80,
+      child: _isNetwork
+          ? Image.network(imagePath, fit: BoxFit.contain, errorBuilder: (_, __, ___) => fallback)
+          : Image.asset(imagePath, fit: BoxFit.contain, errorBuilder: (_, __, ___) => fallback),
     );
   }
 }
@@ -605,26 +793,50 @@ class _DismissibleCard extends StatelessWidget {
 }
 
 class _BudgetTile extends StatelessWidget {
-  const _BudgetTile({required this.label, required this.category, required this.notes, required this.spent, required this.budget, required this.percent, required this.onTap});
-  final String label; final String category; final String notes; final double spent; final double budget; final double percent; final VoidCallback onTap;
-  @override Widget build(BuildContext context) {
+  const _BudgetTile({
+    required this.label,
+    required this.category,
+    required this.spent,
+    required this.budget,
+    required this.percent,
+    required this.onTap,
+  });
+
+  final String label;
+  final String category;
+  final double spent;
+  final double budget;
+  final double percent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final vis = _visualFor(category); // 👈 icons/colors follow selected category
+
     return _Panel(
       onTap: onTap,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _RowIconTitle(icon: Icons.restaurant, title: label.isEmpty ? category : label, menu: const SizedBox()),
-        const SizedBox(height:10),
-        _ProgressBar(value: percent, color: const Color(0xFF7C58F5)),
-        const SizedBox(height:10),
-        Row(children:[
-          _meta('Month\'s spending', 'RM ${spent.toStringAsFixed(0)}'),
-          const Spacer(),
-          _meta('Monthly budget', 'RM ${budget.toStringAsFixed(0)}'),
-        ]),
-        if (notes.isNotEmpty) ...[
-          const SizedBox(height:8),
-          Text(notes, style: const TextStyle(color: Colors.white70, fontFamily: 'Poppins', fontSize:12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _RowIconTitle(
+            icon: vis.fallbackIcon,
+            title: label.isEmpty ? category : label,
+            badgeColor: vis.color,
+            assetPath: vis.asset,
+            menu: const SizedBox(),
+          ),
+          const SizedBox(height: 10),
+          _ProgressBar(value: percent, color: vis.color),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _meta('Today\'s spending', 'RM ${spent.toStringAsFixed(0)}'),
+              const Spacer(),
+              _meta('Daily budget', 'RM ${budget.toStringAsFixed(0)}'),
+            ],
+          ),
         ],
-      ]),
+      ),
     );
   }
 }
@@ -632,30 +844,73 @@ class _BudgetTile extends StatelessWidget {
 enum _GoalStatus { overspent, inProgress, reached }
 
 class _GoalTile extends StatelessWidget {
-  const _GoalTile({required this.label, required this.notes, required this.status, required this.percent, required this.onTap});
-  final String label; final String notes; final _GoalStatus status; final double percent; final VoidCallback onTap;
-  @override Widget build(BuildContext context) {
-    final Color barColor = switch (status) {
-      _GoalStatus.overspent => const Color(0xFFE85D5D),
-      _GoalStatus.inProgress => const Color(0xFF8AD03D),
-      _GoalStatus.reached => const Color(0xFF8AD03D),
-    };
+  const _GoalTile({
+    required this.label,
+    required this.status,
+    required this.percent,
+    required this.onTap,
+    this.category,
+  });
+
+  final String label;
+  final _GoalStatus status;
+  final double percent;
+  final VoidCallback onTap;
+  final String? category;
+
+  @override
+  Widget build(BuildContext context) {
+    final vis = _visualFor((category ?? ''));
+
+    late final Color ringColor;
+    late final String ringText;
+    switch (status) {
+      case _GoalStatus.overspent: ringColor = const Color(0xFFFF6B6B); ringText = 'Try harder'; break;
+      case _GoalStatus.inProgress: ringColor = const Color(0xFFFFC107); ringText = 'In Progress'; break;
+      case _GoalStatus.reached: ringColor = const Color(0xFF4CAF50); ringText = 'You Did It'; break;
+    }
+
+// `percent` already passed in from the caller
     final double value = switch (status) {
-      _GoalStatus.overspent => 0.0,
+      _GoalStatus.overspent => 1.0,  // FULL red ring when failed
       _GoalStatus.inProgress => percent,
       _GoalStatus.reached => 1.0,
     };
+
+
     return _Panel(
       onTap: onTap,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _RowIconTitle(icon: Icons.savings, title: label, menu: const SizedBox()),
-        const SizedBox(height:10),
-        _ProgressBar(value: value, color: barColor),
-        if (notes.isNotEmpty) ...[
-          const SizedBox(height:8),
-          Text(notes, style: const TextStyle(color: Colors.white70, fontFamily: 'Poppins', fontSize:12)),
+      child: Row(
+        children: [
+          // left: category icon
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _RowIconTitle(
+                  icon: vis.fallbackIcon,
+                  title: category ?? 'Goal',
+                  badgeColor: vis.color,
+                  assetPath: vis.asset,
+                  menu: const SizedBox(),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  label.isEmpty ? 'Goal' : label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontFamily: 'Poppins',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          _StatusRing(value: value, color: ringColor, label: ringText),
         ],
-      ]),
+      ),
     );
   }
 }
@@ -668,7 +923,17 @@ class _Panel extends StatelessWidget {
       onTap: onTap, borderRadius: BorderRadius.circular(16),
       child: Container(
         width: double.infinity, margin: const EdgeInsets.only(bottom:10), padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: const Color(0xFF3B3B3B), borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.10), blurRadius: 6, offset: const Offset(0,2))]),
+        decoration: BoxDecoration(
+          color: const Color(0xFF49634F),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.10),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
         child: child,
       ),
     );
@@ -676,15 +941,75 @@ class _Panel extends StatelessWidget {
 }
 
 class _RowIconTitle extends StatelessWidget {
-  const _RowIconTitle({required this.icon, required this.title, required this.menu});
-  final IconData icon; final String title; final Widget menu;
-  @override Widget build(BuildContext context) {
-    return Row(children:[
-      Container(width:28, height:28, decoration: BoxDecoration(color: const Color(0xFFEFB8C8), borderRadius: BorderRadius.circular(8)), alignment: Alignment.center, child: Icon(icon, size:16)),
-      const SizedBox(width:10),
-      Expanded(child: Text(title, style: const TextStyle(fontFamily:'Poppins', color: Colors.white, fontWeight: FontWeight.w700, fontSize:14))),
-      menu,
-    ]);
+  const _RowIconTitle({
+    required this.icon,
+    required this.title,
+    required this.menu,
+    this.badgeColor,
+    this.assetPath,
+  });
+
+  final IconData icon;
+  final String title;
+  final Widget menu;
+  final Color? badgeColor;
+  final String? assetPath;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = badgeColor ?? const Color(0xFFEFB8C8);
+
+    Widget badge;
+    if (assetPath != null) {
+      badge = Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color, width: 2),
+        ),
+        alignment: Alignment.center,
+        child: Image.asset(
+          assetPath!,
+          width: 18,
+          height: 18,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => Icon(icon, size: 16, color: color),
+        ),
+      );
+    } else {
+      badge = Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.25),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color, width: 2),
+        ),
+        alignment: Alignment.center,
+        child: Icon(icon, size: 16, color: Colors.white),
+      );
+    }
+
+    return Row(
+      children: [
+        badge,
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontFamily: 'Poppins',
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        menu,
+      ],
+    );
   }
 }
 
@@ -697,32 +1022,103 @@ Widget _meta(String k, String v) => Column(crossAxisAlignment: CrossAxisAlignmen
 class _ProgressBar extends StatelessWidget {
   const _ProgressBar({required this.value, required this.color});
   final double value; final Color color;
-  @override Widget build(BuildContext context) {
+
+  @override
+  Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        height: 10, decoration: BoxDecoration(color: Colors.white.withOpacity(0.12)),
+        height: 8,
+        decoration: BoxDecoration(color: Colors.white.withOpacity(0.12)),
         child: Align(
           alignment: Alignment.centerLeft,
-          child: FractionallySizedBox(widthFactor: value.clamp(0.0, 1.0), child: Container(color: color)),
+          child: FractionallySizedBox(
+            widthFactor: value.clamp(0.0, 1.0),
+            child: Container(color: color),
+          ),
         ),
       ),
     );
   }
 }
 
-/// ---------- Shared form & manager ----------
+/// Circular status ring used in Goals
+class _StatusRing extends StatelessWidget {
+  const _StatusRing({required this.value, required this.color, required this.label});
+  final double value;
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 64,
+      height: 64,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 64, height: 64,
+            child: CircularProgressIndicator(
+              value: 1,
+              strokeWidth: 8,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white24),
+            ),
+          ),
+          SizedBox(
+            width: 64, height: 64,
+            child: CircularProgressIndicator(
+              value: value.clamp(0, 1),
+              strokeWidth: 8,
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+              backgroundColor: Colors.transparent,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(10.0),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+                height: 1.1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// ---------- Shared form (Title + Amount + Category only) ----------
 class _GoalFormSheet extends StatefulWidget {
   const _GoalFormSheet({
-    required this.title, required this.titleCtrl, required this.notesCtrl, required this.amountCtrl,
-    required this.baseCategories, required this.selectedCats,
-    required this.categoriesStream, required this.onSubmit, required this.onManageTap,
-    this.submitButtonText = 'Add Budget', this.onDeleteTap, this.onCreateCategory,
+    required this.title,
+    required this.titleCtrl,
+    required this.amountCtrl,
+    required this.baseCategories,
+    required this.selectedCats,
+    required this.categoriesStream,
+    required this.onSubmit,
+    required this.onManageTap,
+    this.submitButtonText = 'Add',
+    this.onDeleteTap,
+    this.onCreateCategory,
   });
-  final String title; final TextEditingController titleCtrl; final TextEditingController notesCtrl; final TextEditingController amountCtrl;
-  final List<String> baseCategories; final Set<String> selectedCats;
+
+  final String title;
+  final TextEditingController titleCtrl;
+  final TextEditingController amountCtrl;
+  final List<String> baseCategories;
+  final Set<String> selectedCats;
   final Stream<QuerySnapshot<Map<String, dynamic>>> categoriesStream;
-  final VoidCallback onSubmit; final String submitButtonText; final VoidCallback? onDeleteTap;
+  final VoidCallback onSubmit;
+  final String submitButtonText;
+  final VoidCallback? onDeleteTap;
   final VoidCallback onManageTap;
   final Future<void> Function(String name)? onCreateCategory;
 
@@ -756,11 +1152,13 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
             IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
           ]),
           const SizedBox(height:8),
-          _InputBox(controller: widget.titleCtrl, hint: 'Label (e.g., Foody / Save RM30 on food)'),
+          _InputBox(controller: widget.titleCtrl, hint: 'Title (e.g., Food daily budget)'),
           const SizedBox(height:10),
-          _InputBox(controller: widget.notesCtrl, hint: 'Notes', maxLines:3),
-          const SizedBox(height:10),
-          _InputBox(controller: widget.amountCtrl, hint: 'RM 40', keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+          _InputBox(
+            controller: widget.amountCtrl,
+            hint: 'Amount (e.g., RM 40)',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
           const SizedBox(height:14),
 
           Row(children: [
@@ -937,12 +1335,13 @@ class _InputBox extends StatelessWidget {
     return TextField(
       controller: controller, maxLines: maxLines, keyboardType: keyboardType,
       style: const TextStyle(fontFamily:'Poppins', color: Color(0xFF1E293B), fontWeight: FontWeight.w500),
-      decoration: const InputDecoration(
-        hintText: '', hintStyle: TextStyle(fontFamily:'Poppins', color: Color(0xFF94A3B8)),
-        filled: true, fillColor: Color(0xFFDDEBDD),
-        contentPadding: EdgeInsets.symmetric(horizontal:14, vertical:12),
-        enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFFC8DCC8)), borderRadius: BorderRadius.all(Radius.circular(12))),
-        focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF2B8761), width: 2), borderRadius: BorderRadius.all(Radius.circular(12))),
+      decoration: const InputDecoration().copyWith(
+        hintText: hint,
+        hintStyle: const TextStyle(fontFamily:'Poppins', color: Color(0xFF94A3B8)),
+        filled: true, fillColor: const Color(0xFFDDEBDD),
+        contentPadding: const EdgeInsets.symmetric(horizontal:14, vertical:12),
+        enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFFC8DCC8)), borderRadius: BorderRadius.all(Radius.circular(12))),
+        focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF2B8761), width: 2), borderRadius: BorderRadius.all(Radius.circular(12))),
       ),
     );
   }

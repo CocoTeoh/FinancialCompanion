@@ -79,9 +79,52 @@ class CoursePage extends StatefulWidget {
   final String? highlightCourseId;
   const CoursePage({super.key, this.highlightCourseId});
 
-
   @override
   State<CoursePage> createState() => _CoursePageState();
+}
+
+class UserPetAvatar extends StatelessWidget {
+  final double size; // circle size
+  const UserPetAvatar({super.key, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('userPet')
+          .doc('current')
+          .snapshots(),
+      builder: (context, snap) {
+        // Until we know the asset, show nothing to avoid flashing a fallback
+        if (!snap.hasData || !snap.data!.exists) {
+          return SizedBox(width: size, height: size);
+        }
+
+        final data = snap.data!.data();
+        final a = (data?['asset'] ?? '').toString().trim();
+        if (a.isEmpty) {
+          return SizedBox(width: size, height: size);
+        }
+
+        // Render the real pet as soon as we have it
+        return Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            image: DecorationImage(
+              image: AssetImage(a),
+              fit: BoxFit.cover,
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _CoursePageState extends State<CoursePage> {
@@ -105,23 +148,25 @@ class _CoursePageState extends State<CoursePage> {
   // Choices per question (for review)
   List<int?> _answers = [];
 
-  // Auto-next feedback state
+  // Feedback
   bool _showingFeedback = false; // true for 1s after an answer
   bool _locked = false; // ignore taps while showing feedback
   String _bubble = "First question. We can do this!";
 
   final TextEditingController _searchController = TextEditingController();
-
   final List<String> _categories = ["Budgeting", "Investing", "Banking", "Planning"];
+
+  // Coin awarding (per run)
+  bool _coinsAwardedThisRun = false;
+  int _coinsEarnedThisRun = 0;
 
   /// Get courses from Firestore
   Stream<List<Course>> getCourses() {
     return FirebaseFirestore.instance
         .collection('courses')
         .snapshots()
-        .map((snapshot) => snapshot.docs
-        .map((doc) => Course.fromMap(doc.data(), doc.id))
-        .toList());
+        .map((snapshot) =>
+        snapshot.docs.map((doc) => Course.fromMap(doc.data(), doc.id)).toList());
   }
 
   /// Fetch quiz (array field `quizzes` on course doc)
@@ -137,10 +182,122 @@ class _CoursePageState extends State<CoursePage> {
         .toList();
   }
 
+  /// Ensure user doc has `pet_coins` (default 0) without overwriting existing
+  Future<void> _ensurePetCoinsField() async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    final snap = await userRef.get();
+
+    if (!snap.exists) {
+      await userRef.set({'pet_coins': 0}, SetOptions(merge: true));
+      return;
+    }
+
+    final data = snap.data() as Map<String, dynamic>? ?? {};
+    if (!data.containsKey('pet_coins')) {
+      await userRef.set({'pet_coins': 0}, SetOptions(merge: true));
+    }
+  }
+
+  /// Award coins with a per-quiz cap = total number of questions.
+  /// Increments only the REMAINING coins not yet earned for this quiz.
+  /// Stores per-quiz progress at `users/{uid}/quizProgress/{courseId}.earnedCoins`.
+  /// Returns the number of coins actually awarded this run.
+  Future<int> _awardCoinsWithCap({
+    required String courseId,
+    required int score,
+    required int totalQuestions,
+  }) async {
+    if (_coinsAwardedThisRun) return 0; // guard
+
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    final progressRef = userRef.collection('quizProgress').doc(courseId);
+
+    int awarded = 0;
+
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      // Ensure user doc + pet_coins
+      final userSnap = await tx.get(userRef);
+      if (!userSnap.exists) {
+        tx.set(userRef, {'pet_coins': 0}, SetOptions(merge: true));
+      } else {
+        final udata = (userSnap.data() ?? {}) as Map<String, dynamic>;
+        if (udata['pet_coins'] == null) {
+          tx.set(userRef, {'pet_coins': 0}, SetOptions(merge: true));
+        }
+      }
+
+      // Read current progress for this quiz
+      final progSnap = await tx.get(progressRef);
+      final already = (progSnap.data()?['earnedCoins'] ?? 0) as int;
+      final cap = totalQuestions;
+
+      // Desired earned after this attempt (cannot exceed cap)
+      final desiredAfter = (already + score).clamp(0, cap);
+      awarded = desiredAfter - already; // could be 0
+
+      if (awarded > 0) {
+        tx.set(
+          userRef,
+          {'pet_coins': FieldValue.increment(awarded)},
+          SetOptions(merge: true),
+        );
+        tx.set(
+          progressRef,
+          {
+            'earnedCoins': desiredAfter,
+            'maxCoins': cap,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+    });
+
+    _coinsAwardedThisRun = true;
+    return awarded;
+  }
+
+  Future<void> _ensureDefaultPet() async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final ref = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('userPet')
+        .doc('current');
+    final snap = await ref.get();
+    if (!snap.exists) {
+      await ref.set({
+        'name': 'Mr. Kitty',
+        'key': 'cat1',
+        'asset': 'assets/pets/cat1.png',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
   Future<void> _startQuiz(Course course) async {
     setState(() => _loadingQuiz = true);
     try {
       final q = await _fetchQuizForCourse(course.id);
+
+      // If no quiz → stay in article mode
+      if (q.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No quiz found for this course')),
+          );
+        }
+        setState(() {
+          _inQuiz = false;
+          _quiz = const [];
+          _quizMode = QuizMode.playing;
+        });
+        return;
+      }
+
+      // Otherwise start quiz
       setState(() {
         _quiz = q;
         _qIndex = 0;
@@ -151,10 +308,12 @@ class _CoursePageState extends State<CoursePage> {
 
         _answers = List<int?>.filled(q.length, null);
 
-        // feedback state reset + first bubble
         _showingFeedback = false;
         _locked = false;
         _bubble = "First question. We can do this!";
+
+        _coinsAwardedThisRun = false;
+        _coinsEarnedThisRun = 0;
       });
     } finally {
       setState(() => _loadingQuiz = false);
@@ -185,11 +344,10 @@ class _CoursePageState extends State<CoursePage> {
       _showingFeedback = true;
       _locked = true;
       if (correct) _score++;
-      _bubble =
-      correct ? "Yayyy! You got the answer" : "Oh noo... We got it wrong";
+      _bubble = correct ? "Yayyy! You got the answer" : "Oh noo... We got it wrong";
     });
 
-    Future.delayed(const Duration(seconds: 1), () {
+    Future.delayed(const Duration(seconds: 1), () async {
       if (!mounted) return;
       if (_qIndex < _quiz.length - 1) {
         setState(() {
@@ -206,6 +364,21 @@ class _CoursePageState extends State<CoursePage> {
           _showingFeedback = false;
           _locked = false;
         });
+
+        // Award capped coins exactly once after finishing
+        final active = _activeCourse; // guard for null
+        if (active != null) {
+          final earned = await _awardCoinsWithCap(
+            courseId: active.id,
+            score: _score,
+            totalQuestions: _quiz.length,
+          );
+          if (mounted) {
+            setState(() {
+              _coinsEarnedThisRun = earned; // show in UI
+            });
+          }
+        }
       }
     });
   }
@@ -215,16 +388,14 @@ class _CoursePageState extends State<CoursePage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final userDoc =
-    FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final userDoc = FirebaseFirestore.instance.collection('users').doc(user.uid);
     final snapshot = await userDoc.get();
     List favourites = snapshot.data()?['favourites'] ?? [];
 
     if (favourites.contains(courseId)) {
       await userDoc.update({'favourites': FieldValue.arrayRemove([courseId])});
     } else {
-      await userDoc
-          .update({'favourites': FieldValue.arrayUnion([courseId])});
+      await userDoc.update({'favourites': FieldValue.arrayUnion([courseId])});
     }
   }
 
@@ -278,82 +449,83 @@ class _CoursePageState extends State<CoursePage> {
   Widget _buildCourseCard(Course course) {
     final key = _courseKeys[course.id] ??= GlobalKey();
     return Container(
-        key: key,
-        child: GestureDetector(
-          onTap: () => _openCourse(course),
-          child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF355E47),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Course text
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      key: key,
+      child: GestureDetector(
+        onTap: () => _openCourse(course),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF355E47),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Course text
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(course.shortTitle,
+                        style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white)),
+                    const SizedBox(height: 6),
+                    Text("By ${course.author}",
+                        style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12,
+                            color: Colors.white70)),
+                    const SizedBox(height: 4),
+                    Text(
+                      course.hasQuiz ? "Quiz included" : "No Quiz",
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.yellow,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Fav star + duration
+              Column(
                 children: [
-                  Text(course.shortTitle,
-                      style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white)),
-                  const SizedBox(height: 6),
-                  Text("By ${course.author}",
-                      style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 12,
-                          color: Colors.white70)),
-                  const SizedBox(height: 4),
+                  FutureBuilder<bool>(
+                    future: _isFavourite(course.id),
+                    builder: (context, snapshot) {
+                      final isFav = snapshot.data ?? false;
+                      return IconButton(
+                        icon: Icon(
+                          isFav ? Icons.star : Icons.star_border,
+                          color: Colors.orange,
+                        ),
+                        onPressed: () async {
+                          await _toggleFavorite(course.id);
+                          setState(() {}); // refresh UI
+                        },
+                      );
+                    },
+                  ),
                   Text(
-                    course.hasQuiz ? "Quiz included" : "No Quiz",
+                    course.duration,
                     style: const TextStyle(
                       fontFamily: 'Poppins',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.yellow,
+                      fontSize: 11,
+                      color: Colors.orange,
                     ),
                   ),
                 ],
               ),
-            ),
-            // Fav star + duration
-            Column(
-              children: [
-                FutureBuilder<bool>(
-                  future: _isFavourite(course.id),
-                  builder: (context, snapshot) {
-                    final isFav = snapshot.data ?? false;
-                    return IconButton(
-                      icon: Icon(
-                        isFav ? Icons.star : Icons.star_border,
-                        color: Colors.orange,
-                      ),
-                      onPressed: () async {
-                        await _toggleFavorite(course.id);
-                        setState(() {}); // refresh UI
-                      },
-                    );
-                  },
-                ),
-                Text(
-                  course.duration,
-                  style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 11,
-                    color: Colors.orange,
-                  ),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ));
+    );
   }
 
   // ---------- QUIZ VIEWS ----------
@@ -364,8 +536,8 @@ class _CoursePageState extends State<CoursePage> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
-          child:
-          Text('No quiz found for this course.', style: const TextStyle(color: Colors.white)),
+          child: Text('No quiz found for this course.',
+              style: const TextStyle(color: Colors.white)),
         ),
       );
     }
@@ -418,9 +590,10 @@ class _CoursePageState extends State<CoursePage> {
             children: [
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: const BoxDecoration(
-                    color: Colors.white, // white background
+                    color: Colors.white,
                     borderRadius: BorderRadius.only(
                       topLeft: Radius.circular(15),
                       topRight: Radius.circular(15),
@@ -432,28 +605,14 @@ class _CoursePageState extends State<CoursePage> {
                     _bubble,
                     style: const TextStyle(
                       fontFamily: 'Poppins',
-                      color: Colors.black, // black text
+                      color: Colors.black,
                       fontSize: 12,
                     ),
                   ),
                 ),
               ),
-
               const SizedBox(width: 8),
-
-              Container(
-                width: 90,
-                height: 90,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  image: DecorationImage(
-                    image: AssetImage('assets/cat.png'),
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-
-
+              const UserPetAvatar(size: 90),
             ],
           ),
           const SizedBox(height: 16),
@@ -509,8 +668,8 @@ class _CoursePageState extends State<CoursePage> {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 16),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   decoration: BoxDecoration(
                     color: bg,
                     borderRadius: BorderRadius.circular(14),
@@ -538,6 +697,13 @@ class _CoursePageState extends State<CoursePage> {
         ],
       ),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _ensureDefaultPet();
+    _ensurePetCoinsField();
   }
 
   Widget _buildResultView(ScrollController scrollController) {
@@ -595,7 +761,13 @@ class _CoursePageState extends State<CoursePage> {
           // Stars
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: [star(1), const SizedBox(width: 8), star(2), const SizedBox(width: 8), star(3)],
+            children: [
+              star(1),
+              const SizedBox(width: 8),
+              star(2),
+              const SizedBox(width: 8),
+              star(3)
+            ],
           ),
           const SizedBox(height: 8),
           Text(
@@ -605,7 +777,7 @@ class _CoursePageState extends State<CoursePage> {
           ),
           const SizedBox(height: 16),
 
-          // Cat bubble reward text
+          // Reward bubble (dynamic)
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 24),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -613,10 +785,12 @@ class _CoursePageState extends State<CoursePage> {
               color: const Color(0xFFE7DAF5).withOpacity(.7),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Text(
-              "Wow! You’ve Earned Pet Coins!\nLet's read more to earn more coins!",
+            child: Text(
+              _coinsEarnedThisRun > 0
+                  ? "Wow! You’ve Earned $_coinsEarnedThisRun Pet Coins!\nLet's read more to earn more coins!"
+                  : "You're already at the max for this quiz.\nGreat consistency—keep learning!",
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 fontFamily: 'Poppins',
                 color: Color(0xFF2A2A2A),
                 fontSize: 12,
@@ -637,8 +811,8 @@ class _CoursePageState extends State<CoursePage> {
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
-                  padding:
-                  const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 14, horizontal: 18),
                   textStyle: const TextStyle(
                       fontFamily: 'Poppins',
                       fontWeight: FontWeight.w700,
@@ -667,6 +841,8 @@ class _CoursePageState extends State<CoursePage> {
                     _showingFeedback = false;
                     _locked = false;
                     _bubble = "First question. We can do this!";
+                    _coinsAwardedThisRun = false;
+                    _coinsEarnedThisRun = 0;
                   });
                 },
                 style: ElevatedButton.styleFrom(
@@ -674,8 +850,8 @@ class _CoursePageState extends State<CoursePage> {
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
-                  padding:
-                  const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 14, horizontal: 18),
                   textStyle: const TextStyle(
                       fontFamily: 'Poppins',
                       fontWeight: FontWeight.w700,
@@ -733,17 +909,7 @@ class _CoursePageState extends State<CoursePage> {
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                width: 64,
-                height: 64,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  image: DecorationImage(
-                    image: AssetImage('assets/cat.png'),
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
+              const UserPetAvatar(size: 64),
             ],
           ),
           const SizedBox(height: 16),
@@ -773,8 +939,6 @@ class _CoursePageState extends State<CoursePage> {
                         color: Colors.white),
                   ),
                   const SizedBox(height: 10),
-
-
 
                   // Your choice (if wrong show red X + text)
                   if (chosen != null && !isCorrect)
@@ -835,6 +999,8 @@ class _CoursePageState extends State<CoursePage> {
                     _showingFeedback = false;
                     _locked = false;
                     _bubble = "First question. We can do this!";
+                    _coinsAwardedThisRun = false;
+                    _coinsEarnedThisRun = 0;
                   });
                 },
                 style: ElevatedButton.styleFrom(
@@ -842,8 +1008,8 @@ class _CoursePageState extends State<CoursePage> {
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
-                  padding:
-                  const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 14, horizontal: 18),
                   textStyle: const TextStyle(
                       fontFamily: 'Poppins',
                       fontWeight: FontWeight.w700,
@@ -881,18 +1047,25 @@ class _CoursePageState extends State<CoursePage> {
 
             // Prefer firstName from Firestore; fall back to other sources
             final authUser = FirebaseAuth.instance.currentUser;
-            final data = (favSnapshot.data!.data() as Map<String, dynamic>? ) ?? {};
+            final data =
+                (favSnapshot.data!.data() as Map<String, dynamic>? ) ?? {};
 
             // try common key variants
             String userName = '';
             for (final key in ['firstName', 'first_name', 'firstname']) {
               final v = (data[key] ?? '').toString().trim();
-              if (v.isNotEmpty) { userName = v; break; }
+              if (v.isNotEmpty) {
+                userName = v;
+                break;
+              }
             }
 
             if (userName.isEmpty) {
               // if there's a full name, take the first token
-              final full = (data['name'] ?? data['username'] ?? authUser?.displayName ?? '')
+              final full = (data['name'] ??
+                  data['username'] ??
+                  authUser?.displayName ??
+                  '')
                   .toString()
                   .trim();
               if (full.isNotEmpty) {
@@ -901,8 +1074,6 @@ class _CoursePageState extends State<CoursePage> {
                 userName = (authUser?.email?.split('@').first ?? 'there');
               }
             }
-
-
 
             return StreamBuilder<List<Course>>(
               stream: getCourses(),
@@ -946,8 +1117,8 @@ class _CoursePageState extends State<CoursePage> {
                         duration: const Duration(milliseconds: 600),
                         curve: Curves.easeInOut,
                       );
-                      setState(() => _activeCourse =
-                          filtered.firstWhere((c) => c.id == widget.highlightCourseId));
+                      setState(() => _activeCourse = filtered.firstWhere(
+                              (c) => c.id == widget.highlightCourseId));
                     }
                   }
                 });
@@ -1025,18 +1196,20 @@ class _CoursePageState extends State<CoursePage> {
                               // Bubble (left)
                               Expanded(
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 12),
                                   decoration: BoxDecoration(
                                     color: Colors.white, // solid white
                                     borderRadius: const BorderRadius.only(
                                       topLeft: Radius.circular(16),
                                       topRight: Radius.circular(16),
                                       bottomLeft: Radius.circular(16),
-                                      bottomRight: Radius.circular(0), // square BR corner
+                                      bottomRight: Radius.circular(0),
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.black.withOpacity(0.08),
+                                        color:
+                                        Colors.black.withOpacity(0.08),
                                         blurRadius: 6,
                                         offset: const Offset(0, 3),
                                       ),
@@ -1049,7 +1222,6 @@ class _CoursePageState extends State<CoursePage> {
                                       fontSize: 14,
                                       height: 1.35,
                                       color: Color(0xFF1E293B),
-
                                     ),
                                   ),
                                 ),
@@ -1057,22 +1229,11 @@ class _CoursePageState extends State<CoursePage> {
 
                               const SizedBox(width: 12),
 
-                              // Big cat (right)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 30), // move cat down
-                                child: Container(
-                                  width: 96,
-                                  height: 96,
-                                  decoration: BoxDecoration(
-                                    image: const DecorationImage(
-                                      image: AssetImage('assets/cat.png'),
-                                      fit: BoxFit.contain,
-                                    ),
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
+                              // Big pet (right)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 30),
+                                child: UserPetAvatar(size: 96),
                               ),
-
                             ],
                           ),
 
@@ -1099,159 +1260,209 @@ class _CoursePageState extends State<CoursePage> {
                       ),
                     ),
 
+                    // --- backdrop: tap outside to close ---
+                    if (_activeCourse != null)
+                      Positioned.fill(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _activeCourse = null),
+                          child:
+                          Container(color: Colors.black26), // dim background
+                        ),
+                      ),
+
                     // Draggable sheet for active course
                     if (_activeCourse != null)
                       DraggableScrollableSheet(
                         initialChildSize: 0.9,
-                        minChildSize: 0.6,
+                        minChildSize: 0.0, // allow full collapse
                         maxChildSize: 0.95,
                         builder: (context, scrollController) {
                           final course = _activeCourse!;
-                          return Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF355E47),
-                              borderRadius: BorderRadius.vertical(
-                                  top: Radius.circular(20)),
-                            ),
-                            child: !_inQuiz
-                                ? SingleChildScrollView(
-                              controller: scrollController,
-                              child: Column(
-                                crossAxisAlignment:
-                                CrossAxisAlignment.start,
-                                children: [
-                                  // Header row: back, title, star over quiz button
-                                  Row(
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.arrow_back,
-                                            color: Colors.white),
-                                        onPressed: () => setState(
-                                                () => _activeCourse = null),
+
+                          return NotificationListener<
+                              DraggableScrollableNotification>(
+                            onNotification: (n) {
+                              // auto-dismiss when nearly collapsed
+                              if (n.extent <= 0.05 && _activeCourse != null) {
+                                setState(() => _activeCourse = null);
+                              }
+                              return false;
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF355E47),
+                                borderRadius: BorderRadius.vertical(
+                                    top: Radius.circular(20)),
+                              ),
+                              child: !_inQuiz
+                                  ? SingleChildScrollView(
+                                controller: scrollController,
+                                child: Column(
+                                  crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                                  children: [
+                                    // drag handle
+                                    Center(
+                                      child: Container(
+                                        width: 44,
+                                        height: 5,
+                                        margin: const EdgeInsets.only(
+                                            bottom: 12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white24,
+                                          borderRadius:
+                                          BorderRadius.circular(999),
+                                        ),
                                       ),
-                                      Expanded(
-                                        child: Text(course.longTitle,
+                                    ),
+
+                                    Row(
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(
+                                              Icons.arrow_back,
+                                              color: Colors.white),
+                                          onPressed: () => setState(
+                                                  () => _activeCourse =
+                                              null),
+                                        ),
+                                        Expanded(
+                                          child: Text(
+                                            course.longTitle,
                                             style: const TextStyle(
-                                                fontFamily: 'Poppins',
-                                                fontSize: 20,
-                                                fontWeight:
-                                                FontWeight.bold,
-                                                color: Colors.white)),
-                                      ),
-                                      Column(
-                                        children: [
-                                          FutureBuilder<bool>(
-                                            future:
-                                            _isFavourite(course.id),
-                                            builder:
-                                                (context, snapshot) {
-                                              final isFav =
-                                                  snapshot.data ?? false;
-                                              return IconButton(
-                                                icon: Icon(
-                                                  isFav
-                                                      ? Icons.star
-                                                      : Icons.star_border,
-                                                  color: Colors.orange,
-                                                ),
-                                                onPressed: () async {
-                                                  await _toggleFavorite(
-                                                      course.id);
-                                                  setState(() {});
-                                                },
-                                              );
-                                            },
-                                          ),
-                                          if (course.hasQuiz)
-                                            ElevatedButton(
-                                              onPressed: _loadingQuiz
-                                                  ? null
-                                                  : () => _startQuiz(
-                                                  course),
-                                              style: ElevatedButton
-                                                  .styleFrom(
-                                                backgroundColor:
-                                                const Color(
-                                                    0xFF8AD03D),
-                                                foregroundColor:
-                                                Colors.white,
-                                                shape:
-                                                RoundedRectangleBorder(
-                                                  borderRadius:
-                                                  BorderRadius
-                                                      .circular(10),
-                                                ),
-                                                padding: const EdgeInsets
-                                                    .symmetric(
-                                                    horizontal: 14,
-                                                    vertical: 10),
-                                                textStyle: const TextStyle(
-                                                    fontFamily:
-                                                    'Poppins',
-                                                    fontWeight:
-                                                    FontWeight.w700),
-                                              ),
-                                              child: _loadingQuiz
-                                                  ? const SizedBox(
-                                                  height: 16,
-                                                  width: 16,
-                                                  child:
-                                                  CircularProgressIndicator(
-                                                      strokeWidth:
-                                                      2,
-                                                      color: Colors
-                                                          .white))
-                                                  : const Text(
-                                                  'Take Quiz !'),
+                                              fontFamily: 'Poppins',
+                                              fontSize: 20,
+                                              fontWeight:
+                                              FontWeight.bold,
+                                              color: Colors.white,
                                             ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
+                                          ),
+                                        ),
+                                        Column(
+                                          children: [
+                                            FutureBuilder<bool>(
+                                              future: _isFavourite(
+                                                  course.id),
+                                              builder:
+                                                  (context, snapshot) {
+                                                final isFav =
+                                                    snapshot.data ??
+                                                        false;
+                                                return IconButton(
+                                                  icon: Icon(
+                                                      isFav
+                                                          ? Icons.star
+                                                          : Icons
+                                                          .star_border,
+                                                      color: Colors
+                                                          .orange),
+                                                  onPressed: () async {
+                                                    await _toggleFavorite(
+                                                        course.id);
+                                                    setState(() {});
+                                                  },
+                                                );
+                                              },
+                                            ),
+                                            if (course.hasQuiz)
+                                              ElevatedButton(
+                                                onPressed: _loadingQuiz
+                                                    ? null
+                                                    : () => _startQuiz(
+                                                    course),
+                                                style: ElevatedButton
+                                                    .styleFrom(
+                                                  backgroundColor:
+                                                  const Color(
+                                                      0xFF8AD03D),
+                                                  foregroundColor:
+                                                  Colors.white,
+                                                  shape:
+                                                  RoundedRectangleBorder(
+                                                      borderRadius:
+                                                      BorderRadius
+                                                          .circular(
+                                                          10)),
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 14,
+                                                      vertical: 10),
+                                                  textStyle:
+                                                  const TextStyle(
+                                                      fontFamily:
+                                                      'Poppins',
+                                                      fontWeight:
+                                                      FontWeight
+                                                          .w700),
+                                                ),
+                                                child: _loadingQuiz
+                                                    ? const SizedBox(
+                                                    height: 16,
+                                                    width: 16,
+                                                    child:
+                                                    CircularProgressIndicator(
+                                                        strokeWidth:
+                                                        2,
+                                                        color: Colors
+                                                            .white))
+                                                    : const Text(
+                                                    'Take Quiz !'),
+                                              ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
                                       "By ${course.author} • ${course.duration}",
                                       style: const TextStyle(
                                           fontFamily: 'Poppins',
                                           fontSize: 12,
-                                          color: Colors.white70)),
-                                  const SizedBox(height: 24),
-                                  ...course.sections.map(
-                                        (s) => Padding(
-                                      padding: const EdgeInsets.only(
-                                          bottom: 16),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                        children: [
-                                          Text(s.title,
-                                              style: const TextStyle(
-                                                  fontFamily: 'Poppins',
-                                                  fontSize: 16,
-                                                  fontWeight:
-                                                  FontWeight.bold,
-                                                  color: Colors.white)),
-                                          const SizedBox(height: 6),
-                                          Text(s.content,
-                                              style: const TextStyle(
-                                                  fontSize: 12,
-                                                  color:
-                                                  Color(0xFF9393A3),
-                                                  fontFamily:
-                                                  'Poppins')),
-                                        ],
+                                          color: Colors.white70),
+                                    ),
+                                    const SizedBox(height: 24),
+                                    ...course.sections.map(
+                                          (s) => Padding(
+                                        padding:
+                                        const EdgeInsets.only(
+                                            bottom: 16),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                          children: [
+                                            Text(s.title,
+                                                style: const TextStyle(
+                                                    fontFamily:
+                                                    'Poppins',
+                                                    fontSize: 16,
+                                                    fontWeight:
+                                                    FontWeight.bold,
+                                                    color:
+                                                    Colors.white)),
+                                            const SizedBox(height: 6),
+                                            Text(s.content,
+                                                style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color:
+                                                    Color(0xFF9393A3),
+                                                    fontFamily:
+                                                    'Poppins')),
+                                          ],
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            )
-                                : (_quizMode == QuizMode.playing
-                                ? _buildQuizView(scrollController)
-                                : _quizMode == QuizMode.result
-                                ? _buildResultView(scrollController)
-                                : _buildReviewView(scrollController)),
+                                  ],
+                                ),
+                              )
+                                  : (_quizMode == QuizMode.playing
+                                  ? _buildQuizView(scrollController)
+                                  : _quizMode == QuizMode.result
+                                  ? _buildResultView(
+                                  scrollController)
+                                  : _buildReviewView(
+                                  scrollController)),
+                            ),
                           );
                         },
                       ),
