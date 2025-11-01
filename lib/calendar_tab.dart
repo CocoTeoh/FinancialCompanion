@@ -25,24 +25,89 @@ class _CalendarTabState extends State<CalendarTab> {
 
   bool _demoBusy = false;
 
+
+
   Future<void> _runDemo() async {
     if (_demoBusy) return;
     setState(() => _demoBusy = true);
     try {
-      // Show the visual notification shade with mae/tng icons
-      await showDemoNotificationShade(context);
-
-      // OPTIONAL: also create two demo items in pending_auto so the ❕ badge increases.
-      // await simulatePairWriteToInbox();
-      // if (mounted) {
-      //   ScaffoldMessenger.of(context).showSnackBar(
-      //     const SnackBar(content: Text('Added 2 demo notifications to inbox.')),
-      //   );
-      // }
+      await simulatePair();              // write two docs to pending_auto
+      if (!mounted) return;
+      await _showDemoShade();            // show shade with mae/tng icons
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Added 2 demo notifications to inbox. Tap ❕ to review.')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _demoBusy = false);
     }
   }
+
+
+  Future<void> _showDemoShade() async {
+    // Visual notification shade (no inbox opening here)
+    await showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'dismiss',
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+      transitionBuilder: (ctx, anim, __, ___) {
+        final slide = Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero).animate(anim);
+        return Stack(
+          children: [
+            GestureDetector(
+              onTap: () => Navigator.of(ctx).maybePop(),
+              child: Container(color: Colors.black.withOpacity(0.35)),
+            ),
+            SlideTransition(
+              position: slide,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: SafeArea(
+                  bottom: false,
+                  child: Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.only(top: 8, bottom: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1F2937),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 16, offset: const Offset(0, 6))],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        _DemoNotificationCard(
+                          app: "Touch 'n Go eWallet",
+                          title: 'Payment',
+                          body: 'You have paid RM13.50 for BOOST JUICEBARS - CITY JNCTN.',
+                          iconAsset: 'assets/tng.png',
+                          iconSize: 22, // adjust if you want larger/smaller
+                        ),
+                        SizedBox(height: 8),
+                        _DemoNotificationCard(
+                          app: 'Maybank2u',
+                          title: "You\'ve received money!",
+                          body: 'COCO TEOH HUI HUI has transferred RM500.00 to you.',
+                          iconAsset: 'assets/mae.png',
+                          iconSize: 22, // adjust if you want larger/smaller
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+
+
 
 
   DateTime _focusedDay = DateTime.now();
@@ -651,6 +716,63 @@ class _CalendarTabState extends State<CalendarTab> {
     );
   }
 }
+
+class _DemoNotificationCard extends StatelessWidget {
+  const _DemoNotificationCard({
+    required this.app,
+    required this.title,
+    required this.body,
+    required this.iconAsset,
+    this.iconSize = 22,
+  });
+
+  final String app;
+  final String title;
+  final String body;
+  final String iconAsset;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111827),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34, height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0B1220),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Image.asset(iconAsset, width: iconSize, height: iconSize, fit: BoxFit.contain),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(app, style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(title, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(body, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 /// =============================================================
 ///  Models & small UI blocks
