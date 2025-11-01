@@ -1,16 +1,19 @@
+// lib/calendar_tab.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'tx_demo.dart';
 
 /// =============================================================
-///  CalendarTab
-///  - Defaults: Salary, Food, Groceries, Transport
+///  CalendarTab with Auto-capture Inbox
+///  - ❕ icon above calendar shows count of pending auto items
+///  - Half-height draggable inbox to review/edit/categorize
+///  - Nothing is saved to `transactions` until you tap Save
+///  - Auto items are expected in users/{uid}/pending_auto
 ///  - Category Manager (add/rename/delete/recolor)
-///  - NO inline “+ Add new category”
-///  - Color dot in manager now opens picker and saves color
 /// =============================================================
 class CalendarTab extends StatefulWidget {
   const CalendarTab({super.key});
@@ -19,16 +22,41 @@ class CalendarTab extends StatefulWidget {
 }
 
 class _CalendarTabState extends State<CalendarTab> {
+
+  bool _demoBusy = false;
+
+  Future<void> _runDemo() async {
+    if (_demoBusy) return;
+    setState(() => _demoBusy = true);
+    try {
+      // Show the visual notification shade with mae/tng icons
+      await showDemoNotificationShade(context);
+
+      // OPTIONAL: also create two demo items in pending_auto so the ❕ badge increases.
+      // await simulatePairWriteToInbox();
+      // if (mounted) {
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     const SnackBar(content: Text('Added 2 demo notifications to inbox.')),
+      //   );
+      // }
+    } finally {
+      if (mounted) setState(() => _demoBusy = false);
+    }
+  }
+
+
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay = _dateKey(DateTime.now());
 
   final Map<DateTime, List<TransactionEntry>> _byDate = {};
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _catSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _pendingSub;
   Timer? _midnightTicker;
 
   final List<String> _baseCategories = ['Salary', 'Food', 'Groceries', 'Transport'];
   final List<String> _userCategories = [];
+  int _pendingCount = 0;
 
   // ---------- Firestore helpers ----------
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
@@ -36,6 +64,8 @@ class _CalendarTabState extends State<CalendarTab> {
       FirebaseFirestore.instance.collection('users').doc(uid).collection('transactions');
   CollectionReference<Map<String, dynamic>> _catCol(String uid) =>
       FirebaseFirestore.instance.collection('users').doc(uid).collection('categories');
+  CollectionReference<Map<String, dynamic>> _pendingCol(String uid) =>
+      FirebaseFirestore.instance.collection('users').doc(uid).collection('pending_auto');
 
   String _slug(String s) => s.trim().toLowerCase();
 
@@ -44,6 +74,7 @@ class _CalendarTabState extends State<CalendarTab> {
     super.initState();
     _listenCategories();
     _listenMonth(_focusedDay);
+    _listenPendingCount();
     _scheduleMidnightTick();
   }
 
@@ -52,6 +83,7 @@ class _CalendarTabState extends State<CalendarTab> {
     _midnightTicker?.cancel();
     _sub?.cancel();
     _catSub?.cancel();
+    _pendingSub?.cancel();
     super.dispose();
   }
 
@@ -64,6 +96,13 @@ class _CalendarTabState extends State<CalendarTab> {
         if (name.isNotEmpty) list.add(name);
       }
       setState(() { _userCategories..clear()..addAll(list); });
+    });
+  }
+
+  void _listenPendingCount() {
+    _pendingSub?.cancel();
+    _pendingSub = _pendingCol(_uid).snapshots().listen((snap) {
+      setState(() => _pendingCount = snap.size);
     });
   }
 
@@ -116,8 +155,7 @@ class _CalendarTabState extends State<CalendarTab> {
         title: const Text('Pick a color'),
         content: SingleChildScrollView(
           child: BlockPicker(
-            pickerColor: tmp,
-            onColorChanged: (c) => tmp = c,
+            pickerColor: tmp, onColorChanged: (c) => tmp = c,
           ),
         ),
         actions: [
@@ -172,8 +210,10 @@ class _CalendarTabState extends State<CalendarTab> {
     final keyDate = _dateKey(date);
     await _txCol(_uid).add({
       'date': Timestamp.fromDate(keyDate),
-      'title': title, 'description': description,
-      'amount': amount, 'categories': categories,
+      'title': title,
+      'description': description,
+      'amount': amount,
+      'categories': categories,
     });
   }
 
@@ -199,69 +239,137 @@ class _CalendarTabState extends State<CalendarTab> {
     final selected = _selectedDay ?? _dateKey(DateTime.now());
     final todaysList = _eventsFor(selected);
 
-    return Column(
-      children: [
-        const SizedBox(height: 8),
-        _RoundedPanel(
-          child: TableCalendar(
-            firstDay: DateTime.utc(2000, 1, 1),
-            lastDay: DateTime.utc(2100, 12, 31),
-            focusedDay: _focusedDay,
-            calendarFormat: CalendarFormat.month,
-            availableGestures: AvailableGestures.horizontalSwipe,
-            selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-            onDaySelected: (sel, foc) {
-              setState(() { _selectedDay = _dateKey(sel); _focusedDay = foc; });
-            },
-            onPageChanged: (foc) { setState(() => _focusedDay = foc); _listenMonth(foc); },
-            headerStyle: const HeaderStyle(
-              formatButtonVisible: false, titleCentered: true,
-              leftChevronVisible: true, rightChevronVisible: true,
-              titleTextStyle: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, color: Color(0xFF214235)),
-            ),
-            daysOfWeekStyle: const DaysOfWeekStyle(
-              weekdayStyle: TextStyle(fontFamily: 'Poppins'),
-              weekendStyle: TextStyle(fontFamily: 'Poppins'),
-            ),
-            calendarStyle: const CalendarStyle(
-              todayDecoration: BoxDecoration(color: Color(0xFF7C58F5), shape: BoxShape.circle),
-              selectedDecoration: BoxDecoration(color: Color(0xFF8AD03D), shape: BoxShape.circle),
-              defaultTextStyle: TextStyle(fontFamily: 'Poppins'),
-              weekendTextStyle: TextStyle(fontFamily: 'Poppins'),
-              outsideTextStyle: TextStyle(color: Color(0xFF94A3B8), fontFamily: 'Poppins'),
-              markersAutoAligned: false, markersMaxCount: 3,
-            ),
-            eventLoader: (day) => _eventsFor(day),
-            calendarBuilders: CalendarBuilders(
-              markerBuilder: (context, date, events) {
-                final count = events.length;
-                if (count == 0) return const SizedBox.shrink();
-                final dotsToShow = count >= 3 ? 3 : count;
-                return Padding(
-                  padding: const EdgeInsets.only(top: 40),
-                  child: SizedBox(
-                    height: 10,
-                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      for (int i = 0; i < dotsToShow; i++)
-                        Container(width: 4, height: 4, margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                            decoration: const BoxDecoration(color: Color(0xFF6C9BF7), shape: BoxShape.circle)),
-                      if (count > 3)
-                        Container(
-                          alignment: Alignment.center, width: 8, height: 8, margin: const EdgeInsets.only(left: 2),
-                          child: const FittedBox(child: Text('+', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF6C9BF7)))),
+    return CustomScrollView(
+      slivers: [
+        const SliverToBoxAdapter(child: SizedBox(height: 8)),
+
+        // ❕ inbox + 🧪 demo buttons row
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                // ❕ with badge
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    IconButton(
+                      tooltip: 'Auto-captured inbox',
+                      onPressed: _openAutoInbox,
+                      icon: const Text('❕', style: TextStyle(fontSize: 18)),
+                      style: IconButton.styleFrom(
+                        backgroundColor: const Color(0xFFEFF6F1),
+                        padding: const EdgeInsets.all(8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    if (_pendingCount > 0)
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDC2626),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '$_pendingCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
-                    ]),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 8),
+
+                // 🧪 simulate notifications
+                IconButton(
+                  tooltip: _demoBusy ? 'Simulating…' : 'Simulate notifications',
+                  onPressed: _demoBusy ? null : _runDemo,
+                  icon: const Text('🧪', style: TextStyle(fontSize: 16)),
+                  style: IconButton.styleFrom(
+                    backgroundColor: const Color(0xFFEFF6F1),
+                    padding: const EdgeInsets.all(8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
-                );
-              },
+                ),
+              ],
             ),
           ),
         ),
 
-        const SizedBox(height: 8),
 
-        Align(
-          alignment: Alignment.centerLeft,
+        // Calendar
+        SliverToBoxAdapter(
+          child: _RoundedPanel(
+            child: TableCalendar(
+              firstDay: DateTime.utc(2000, 1, 1),
+              lastDay: DateTime.utc(2100, 12, 31),
+              focusedDay: _focusedDay,
+              calendarFormat: CalendarFormat.month,
+              availableGestures: AvailableGestures.horizontalSwipe,
+              selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+              onDaySelected: (sel, foc) {
+                setState(() { _selectedDay = _dateKey(sel); _focusedDay = foc; });
+              },
+              onPageChanged: (foc) { setState(() => _focusedDay = foc); _listenMonth(foc); },
+              headerStyle: const HeaderStyle(
+                formatButtonVisible: false, titleCentered: true,
+                leftChevronVisible: true, rightChevronVisible: true,
+                titleTextStyle: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, color: Color(0xFF214235)),
+              ),
+              daysOfWeekStyle: const DaysOfWeekStyle(
+                weekdayStyle: TextStyle(fontFamily: 'Poppins'),
+                weekendStyle: TextStyle(fontFamily: 'Poppins'),
+              ),
+              calendarStyle: const CalendarStyle(
+                todayDecoration: BoxDecoration(color: Color(0xFF7C58F5), shape: BoxShape.circle),
+                selectedDecoration: BoxDecoration(color: Color(0xFF8AD03D), shape: BoxShape.circle),
+                defaultTextStyle: TextStyle(fontFamily: 'Poppins'),
+                weekendTextStyle: TextStyle(fontFamily: 'Poppins'),
+                outsideTextStyle: TextStyle(color: Color(0xFF94A3B8), fontFamily: 'Poppins'),
+                markersAutoAligned: false, markersMaxCount: 3,
+              ),
+              eventLoader: (day) => _eventsFor(day),
+              calendarBuilders: CalendarBuilders(
+                markerBuilder: (context, date, events) {
+                  final count = events.length;
+                  if (count == 0) return const SizedBox.shrink();
+                  final dotsToShow = count >= 3 ? 3 : count;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 40),
+                    child: SizedBox(
+                      height: 10,
+                      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        for (int i = 0; i < dotsToShow; i++)
+                          Container(
+                            width: 4, height: 4,
+                            margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                            decoration: const BoxDecoration(color: Color(0xFF6C9BF7), shape: BoxShape.circle),
+                          ),
+                        if (count > 3)
+                          Container(
+                            alignment: Alignment.center, width: 8, height: 8, margin: const EdgeInsets.only(left: 2),
+                            child: const FittedBox(
+                              child: Text('+', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF6C9BF7))),
+                            ),
+                          ),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+
+        // Header
+        SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text(
@@ -270,47 +378,61 @@ class _CalendarTabState extends State<CalendarTab> {
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            itemCount: 1 + todaysList.length,
-            itemBuilder: (_, i) {
-              if (i == 0) {
-                return _NewTransactionButton(onTap: () => _openAddTransactionSheet(context), compact: true);
-              }
-              final e = todaysList[i - 1];
-              return Dismissible(
-                key: ValueKey('txn-${e.id}'),
-                direction: DismissDirection.endToStart,
-                background: Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(color: const Color(0xFFE85D5D), borderRadius: BorderRadius.circular(14)),
-                  alignment: Alignment.centerRight, padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: const Icon(Icons.delete, color: Colors.white),
-                ),
-                confirmDismiss: (_) async {
-                  return await showDialog<bool>(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: const Text('Delete transaction?'),
-                      content: const Text('This cannot be undone.'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-                      ],
-                    ),
-                  ) ?? false;
-                },
-                onDismissed: (_) => _deleteTransaction(e.id),
-                child: _TransactionTile(entry: e, compact: true, onTap: () => _openEditTransactionSheet(context, e)),
-              );
-            },
+        // “Add” button
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _NewTransactionButton(onTap: () => _openAddTransactionSheet(context), compact: true),
           ),
         ),
+        const SliverToBoxAdapter(child: SizedBox(height: 6)),
+
+        // Transactions list
+        // Transactions list
+        SliverList(
+          delegate: SliverChildBuilderDelegate(
+                (context, i) {
+              final e = todaysList[i];
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Dismissible(
+                  key: ValueKey('txn-${e.id}'),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(color: const Color(0xFFE85D5D), borderRadius: BorderRadius.circular(14)),
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  confirmDismiss: (_) async {
+                    return await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Delete transaction?'),
+                        content: const Text('This cannot be undone.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+                        ],
+                      ),
+                    ) ?? false;
+                  },
+                  onDismissed: (_) => _deleteTransaction(e.id),
+                  child: _TransactionTile(entry: e, compact: true, onTap: () => _openEditTransactionSheet(context, e)),
+                ),
+              );
+            },
+            childCount: todaysList.length,
+          ),
+        ),
+
+        const SliverToBoxAdapter(child: SizedBox(height: 16)),
       ],
     );
+
   }
 
   // ---------- helpers ----------
@@ -406,6 +528,92 @@ class _CalendarTabState extends State<CalendarTab> {
     );
   }
 
+  /// Auto-captured inbox (half height, no overflow)
+  Future<void> _openAutoInbox() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent, // to keep rounded sheet nice
+      builder: (_) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.70, minChildSize: 0.50, maxChildSize: 0.95,
+          builder: (ctx, controller) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFFE7F0E9),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  Container(width: 40, height: 4, decoration: BoxDecoration(
+                      color: const Color(0xFF9CA3AF), borderRadius: BorderRadius.circular(4))),
+                  const SizedBox(height: 10),
+                  const Text('Auto-captured', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: _pendingCol(_uid).orderBy('date', descending: true).snapshots(),
+                      builder: (ctx, snap) {
+                        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+                        final docs = snap.data!.docs;
+                        if (docs.isEmpty) {
+                          return const Center(child: Text('No pending items 🙂',
+                              style: TextStyle(fontFamily: 'Poppins', color: Color(0xFF64748B))));
+                        }
+                        return ListView.builder(
+                          controller: controller,
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          itemCount: docs.length,
+                          itemBuilder: (_, i) {
+                            final doc = docs[i]; // capture once
+                            return _AutoPendingCard(
+                              key: ValueKey('pending-${doc.id}'),
+                              doc: doc,
+                              baseCategories: _baseCategories,
+                              userCategories: _userCategories,
+                              onSave: (title, desc, amount, cats) async {
+                                // read fields from the captured doc
+                                final data = doc.data();
+                                final ts = data['date'] as Timestamp?;
+                                final date = ts?.toDate() ?? DateTime.now();
+
+                                // drop “Uncategorized” if any other category is selected
+                                final cleaned = cats.where((c) => c.toLowerCase() != 'uncategorized').toList();
+                                final finalCats = cleaned.isEmpty ? <String>['Uncategorized'] : cleaned;
+
+                                // do an atomic move: add to transactions + delete from pending
+                                final batch = FirebaseFirestore.instance.batch();
+                                final newRef = _txCol(_uid).doc();
+                                batch.set(newRef, {
+                                  'date': Timestamp.fromDate(_dateKey(date)),
+                                  'title': title,
+                                  'description': desc,
+                                  'amount': amount,
+                                  'categories': finalCats,
+                                });
+                                batch.delete(_pendingCol(_uid).doc(doc.id));
+                                await batch.commit();
+                              },
+                              onDelete: () async {
+                                await _pendingCol(_uid).doc(doc.id).delete();
+                              },
+                            );
+                          },
+
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _openManageCategories(BuildContext context) async {
     await showModalBottomSheet(
       context: context,
@@ -473,6 +681,117 @@ class TransactionEntry {
   }
 }
 
+class _AutoPendingCard extends StatefulWidget {
+  const _AutoPendingCard({
+    super.key,
+    required this.doc,
+    required this.baseCategories,
+    required this.userCategories,
+    required this.onSave,
+    required this.onDelete,
+  });
+
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+  final List<String> baseCategories;
+  final List<String> userCategories;
+  final Future<void> Function(String title, String desc, double amount, List<String> categories) onSave;
+  final Future<void> Function() onDelete;
+
+  @override
+  State<_AutoPendingCard> createState() => _AutoPendingCardState();
+}
+
+class _AutoPendingCardState extends State<_AutoPendingCard> {
+  late final TextEditingController _title = TextEditingController(text: (widget.doc.data()['title'] ?? 'Transaction').toString());
+  late final TextEditingController _notes = TextEditingController(text: (widget.doc.data()['description'] ?? '').toString());
+  late final TextEditingController _amount = TextEditingController(text: ((widget.doc.data()['amount'] ?? 0.0) as num).toStringAsFixed(2));
+  late final Set<String> _cats = {
+    ...(widget.doc.data()['categories'] as List<dynamic>? ?? const <String>[])
+        .map((e) => e.toString())
+  };
+
+  void _toggle(String c) {
+    setState(() {
+      if (_cats.contains(c)) { _cats.remove(c); } else { _cats.add(c); }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFF3B3B3B), borderRadius: BorderRadius.circular(14)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        TextField(
+          controller: _title,
+          decoration: const InputDecoration(
+            hintText: 'Title', filled: true, fillColor: Color(0xFFDDEBDD),
+            border: OutlineInputBorder(borderSide: BorderSide.none, borderRadius: BorderRadius.all(Radius.circular(10))),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _notes,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            hintText: 'Description', filled: true, fillColor: Color(0xFFDDEBDD),
+            border: OutlineInputBorder(borderSide: BorderSide.none, borderRadius: BorderRadius.all(Radius.circular(10))),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _amount,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            hintText: 'RM 0.00', filled: true, fillColor: Color(0xFFDDEBDD),
+            border: OutlineInputBorder(borderSide: BorderSide.none, borderRadius: BorderRadius.all(Radius.circular(10))),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8, runSpacing: 8,
+          children: [
+            ...widget.baseCategories.map((c) => _CategoryChip(
+              label: c, selected: _cats.contains(c), onTap: () => _toggle(c), color: _chipColor(c),
+            )),
+            ...widget.userCategories.map((c) => _CategoryChip(
+              label: c, selected: _cats.contains(c), onTap: () => _toggle(c), color: _chipColor('custom'),
+            )),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(children: [
+          TextButton.icon(
+            onPressed: widget.onDelete,
+            icon: const Icon(Icons.close, size: 16, color: Color(0xFFE85D5D)),
+            label: const Text('Dismiss', style: TextStyle(color: Color(0xFFE85D5D))),
+          ),
+          const Spacer(),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2B8761),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () async {
+              final title = _title.text.trim().isEmpty ? 'Transaction' : _title.text.trim();
+              final desc = _notes.text.trim();
+              final amount = double.tryParse(_amount.text.replaceAll('RM', '').trim()) ?? 0.0;
+              await widget.onSave(title, desc, amount, _cats.toList());
+            },
+            child: const Text('Save'),
+          ),
+        ]),
+      ]),
+    );
+  }
+}
+
 class _RoundedPanel extends StatelessWidget {
   const _RoundedPanel({required this.child});
   final Widget child;
@@ -496,7 +815,8 @@ class _NewTransactionButton extends StatelessWidget {
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
-        decoration: BoxDecoration(color: const Color(0xFF3B3B3B), borderRadius: BorderRadius.circular(14), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.10), blurRadius: 6, offset: const Offset(0, 2))]),
+        decoration: BoxDecoration(color: const Color(0xFF3B3B3B), borderRadius: BorderRadius.circular(14),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.10), blurRadius: 6, offset: const Offset(0, 2))]),
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: vPad),
         child: Row(children: [
           Container(width: iconBox, height: iconBox, decoration: BoxDecoration(color: const Color(0xFFFF7547), borderRadius: BorderRadius.circular(10)), alignment: Alignment.center, child: const Icon(Icons.add, color: Colors.white, size: 16)),
@@ -508,6 +828,13 @@ class _NewTransactionButton extends StatelessWidget {
     );
   }
 }
+
+List<String> _visibleCats(List<String> cats) {
+  final hasReal = cats.any((c) => c.toLowerCase() != 'uncategorized');
+  if (!hasReal) return cats;
+  return cats.where((c) => c.toLowerCase() != 'uncategorized').toList();
+}
+
 
 class _TransactionTile extends StatelessWidget {
   const _TransactionTile({required this.entry, this.compact = false, this.onTap});
@@ -535,8 +862,8 @@ class _TransactionTile extends StatelessWidget {
               Text(entry.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontFamily: 'Poppins', color: Colors.white70, fontSize: 11.5)),
             ],
             const SizedBox(height: 6),
-            Wrap(spacing: 6, runSpacing: 4, children: entry.categories.map((c) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            Wrap(spacing: 6, runSpacing: 4, children: _visibleCats(entry.categories).map((c) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(color: Colors.white.withOpacity(0.08), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.white24)),
               child: Text(c, style: TextStyle(fontFamily: 'Poppins', color: Colors.white, fontSize: chipFS)),
             )).toList()),
@@ -588,74 +915,130 @@ class _TransactionFormSheetState extends State<_TransactionFormSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(left:16, right:16, top:12, bottom:16 + MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(
+        left: 16, right: 16, top: 12,
+        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: SingleChildScrollView(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            if (widget.onDeleteTap != null)
-              IconButton(tooltip: 'Delete', onPressed: widget.onDeleteTap, icon: const Icon(Icons.delete, color: Color(0xFFE85D5D))),
-            const Spacer(),
-            Text(widget.title, style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 16)),
-            const Spacer(),
-            IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-          ]),
-          const SizedBox(height: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              if (widget.onDeleteTap != null)
+                IconButton(
+                  tooltip: 'Delete',
+                  onPressed: widget.onDeleteTap,
+                  icon: const Icon(Icons.delete, color: Color(0xFFE85D5D)),
+                ),
+              const Spacer(),
+              Text(
+                widget.title,
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ]),
+            const SizedBox(height: 8),
 
-          _InputBox(controller: widget.titleCtrl, hint: 'Title (e.g., Groceries)'),
-          const SizedBox(height: 10),
-          _InputBox(controller: widget.notesCtrl, hint: '• eggs, bread, rice', maxLines: 3),
-          const SizedBox(height: 10),
-          _InputBox(controller: widget.amountCtrl, hint: 'RM 20', keyboardType: const TextInputType.numberWithOptions(decimal: true)),
-          const SizedBox(height: 14),
-
-          Row(children: [
-            const Text('Select Category', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, color: Color(0xFF214235))),
-            const SizedBox(width: 8),
-            InkWell(onTap: widget.onManageTap, borderRadius: BorderRadius.circular(8),
-              child: const Padding(padding: EdgeInsets.all(4), child: Icon(Icons.edit, size: 18, color: Color(0xFF64748B))),
+            _InputBox(controller: widget.titleCtrl, hint: 'Title (e.g., Groceries)'),
+            const SizedBox(height: 10),
+            _InputBox(controller: widget.notesCtrl, hint: '• eggs, bread, rice', maxLines: 3),
+            const SizedBox(height: 10),
+            _InputBox(
+              controller: widget.amountCtrl,
+              hint: 'RM 20',
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
             ),
-          ]),
-          const SizedBox(height: 8),
+            const SizedBox(height: 14),
 
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: widget.categoriesStream,
-            builder: (context, snap) {
-              final customs = <_CatItem>[];
-              if (snap.hasData) {
-                for (final d in snap.data!.docs) {
-                  final m = d.data();
-                  customs.add(_CatItem(
-                    id: d.id, name: (m['name'] ?? '').toString(),
-                    color: (m['color'] as int?) ?? _chipColor('custom').value, isDefault: false,
-                  ));
+            Row(children: [
+              const Text(
+                'Select Category',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF214235),
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: widget.onManageTap,
+                borderRadius: BorderRadius.circular(8),
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(Icons.edit, size: 18, color: Color(0xFF64748B)),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: widget.categoriesStream,
+              builder: (context, snap) {
+                final customs = <_CatItem>[];
+                if (snap.hasData) {
+                  for (final d in snap.data!.docs) {
+                    final m = d.data();
+                    customs.add(_CatItem(
+                      id: d.id,
+                      name: (m['name'] ?? '').toString(),
+                      color: (m['color'] as int?) ?? _chipColor('custom').value,
+                      isDefault: false,
+                    ));
+                  }
                 }
-              }
-              return Wrap(spacing: 8, runSpacing: 8, children: [
-                ...widget.baseCategories.map((c) => _CategoryChip(
-                  label: c, selected: widget.selectedCats.contains(c), onTap: () => _toggleCat(c), color: _chipColor(c),
-                )),
-                ...customs.map((it) => _CategoryChip(
-                  label: it.name, selected: widget.selectedCats.contains(it.name), onTap: () => _toggleCat(it.name), color: Color(it.color),
-                )),
-              ]);
-            },
-          ),
-
-          const SizedBox(height: 16),
-
-          Row(children: [
-            const Spacer(),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2B8761), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              onPressed: widget.onSubmit,
-              child: const Text('Save', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                return Wrap(
+                  spacing: 8, runSpacing: 8,
+                  children: [
+                    ...widget.baseCategories.map((c) => _CategoryChip(
+                      label: c,
+                      selected: widget.selectedCats.contains(c),
+                      onTap: () => _toggleCat(c),
+                      color: _chipColor(c),
+                    )),
+                    ...customs.map((it) => _CategoryChip(
+                      label: it.name,
+                      selected: widget.selectedCats.contains(it.name),
+                      onTap: () => _toggleCat(it.name),
+                      color: Color(it.color),
+                    )),
+                  ],
+                );
+              },
             ),
-          ]),
-        ]),
+
+            const SizedBox(height: 16),
+
+            Row(children: [
+              const Spacer(),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2B8761),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: widget.onSubmit,
+                child: const Text(
+                  'Save',
+                  style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700),
+                ),
+              ),
+            ]),
+          ],
+        ),
       ),
     );
   }
 }
+
 
 class _ManageCategoriesSheet extends StatelessWidget {
   const _ManageCategoriesSheet({
@@ -763,7 +1146,6 @@ class _CatItem {
   const _CatItem({required this.id, required this.name, required this.color, required this.isDefault});
 }
 
-/// utility widgets
 class _InputBox extends StatelessWidget {
   const _InputBox({required this.controller, required this.hint, this.maxLines = 1, this.keyboardType});
   final TextEditingController controller; final String hint; final int maxLines; final TextInputType? keyboardType;

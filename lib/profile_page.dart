@@ -1,3 +1,4 @@
+// lib/profile_page.dart
 import 'package:flutter/material.dart';
 import 'change_pet.dart';
 
@@ -14,7 +15,10 @@ class ProfilePage extends StatelessWidget {
           const SizedBox(height: 16),
           ElevatedButton(
             onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePetPage()));
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ChangePetPage()),
+              );
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFFF8A5B),
