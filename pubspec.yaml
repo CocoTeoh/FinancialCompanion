@@ -21,6 +21,7 @@ dependencies:
   table_calendar: ^3.0.9
   fl_chart: ^0.68.0
   flutter_colorpicker: ^1.0.3
+  image_picker: ^1.0.7
 
   # Firebase
   firebase_core: ^4.1.0
