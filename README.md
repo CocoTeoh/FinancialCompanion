@@ -1,16 +1,8 @@
-# financial_companion_final
+Many people, especially young adults, frequently struggle with efficient money management in the context of personal finance due to the complexity of budgeting, and lack of awareness about financial aid and investment opportunities.
+The Financial Companion application is envisioned as a comprehensive mobile application that serves as a smart assistant for budgeting, saving, and financial learning. The app addresses both the practical and psychological barriers to financial planning by combining automation, education, and gamification.
 
-A new Flutter project.
+The core functionality of the application includes personalized budgeting tools that adapt to the user’s income and lifestyle. By syncing with digital payment platforms such as Touch ‘n Go, FPX, and online banking APIs, the app automates expense tracking and provides real-time budget updates. Additionally, the app offers an AI-powered recommendation system that analyzes user spending patterns and provides actionable suggestions for maintaining financial health.
 
-## Getting Started
+The educational component of the application includes curated financial content and interactive quizzes that enhance the user’s understanding of topics such as saving, investment, and risk management. A unique gamified feature, an AI-based virtual pet acts as a motivational tool. The pet grows and evolves as the user meets budgeting goals and completes financial tasks. Users earn in-game currency that can be used to purchase virtual items for their pet, thereby promoting sustained engagement.
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Notifications and reminders are integrated to help users stay on track with their goals without feeling overwhelmed or judged. Altogether, Financial Companion offers a holistic approach to financial planning for young adults that is practical, enjoyable, and educational.
