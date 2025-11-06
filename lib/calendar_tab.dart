@@ -5,19 +5,16 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
-import 'package:cloud_functions/cloud_functions.dart'; //
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'tx_demo.dart';
 
-
-// =============================================================
-// FCM Background Handler (MUST be top-level)
-// =============================================================
-@pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await processFCMMessage(message);
-}
-
+/// =============================================================
+///  CalendarTab with Auto-capture Inbox
+///  - ❕ icon above calendar shows count of pending auto items
+///  - Half-height draggable inbox to review/edit/categorize
+///  - Nothing is saved to `transactions` until you tap Save
+///  - Auto items are expected in users/{uid}/pending_auto
+///  - Category Manager (add/rename/delete/recolor)
+/// =============================================================
 class CalendarTab extends StatefulWidget {
   const CalendarTab({super.key});
   @override
@@ -27,29 +24,19 @@ class CalendarTab extends StatefulWidget {
 class _CalendarTabState extends State<CalendarTab> {
 
   bool _demoBusy = false;
+
+
+
   Future<void> _runDemo() async {
     if (_demoBusy) return;
     setState(() => _demoBusy = true);
     try {
-      // ❕ OLD: await simulatePair(); // HARDCODED METHOD REMOVED
-
-      // 💡 NEW: Call the Cloud Function to send the FCM message
-      final functions = FirebaseFunctions.instance;
-      // 'simulateNotification' is the name your deployed Cloud Function will use
-      final callable = functions.httpsCallable('simulateNotification');
-
-      await callable.call();
+      await simulatePair();              // write two docs to pending_auto
       if (!mounted) return;
-
-      // The visual feedback is now controlled by the FCM listener (below)
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('FCM demo trigger sent. Waiting for message delivery...')),
-      );
-    } catch (e) {
-      print('Error calling Cloud Function: $e');
+      await _showDemoShade();            // show shade with mae/tng icons
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to trigger demo: $e')),
+          const SnackBar(content: Text('Added 2 demo notifications to inbox. Tap ❕ to review.')),
         );
       }
     } finally {
@@ -153,10 +140,7 @@ class _CalendarTabState extends State<CalendarTab> {
     _listenCategories();
     _listenMonth(_focusedDay);
     _listenPendingCount();
-    _initFCMListeners();
     _scheduleMidnightTick();
-
-
   }
 
   @override
@@ -186,45 +170,6 @@ class _CalendarTabState extends State<CalendarTab> {
       setState(() => _pendingCount = snap.size);
     });
   }
-
-  void _initFCMListeners() {
-    // 1. Handle background messages (links to the top-level function)
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-
-    // 2. Handle messages when the app is in the foreground
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      // The data is processed and saved to Firestore by processFCMMessage
-      // which is implicitly called in the top-level handler.
-      // We process again here just in case the top-level handler is not properly configured
-      // or for simple foreground testing, ensuring the UI update works.
-      await processFCMMessage(message);
-
-      // Trigger UI updates
-      if (!mounted) return;
-
-      // Use existing visual feedback to simulate the phone receiving a notification
-      await _showDemoShade();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Auto-captured 2 transactions via FCM. Tap ❕ to review.')),
-      );
-    });
-
-    // 3. Handle a tap on a notification that opened the app
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      if (mounted) _openAutoInbox();
-    });
-
-    // 4. Handle if the app was opened from a terminated state
-    FirebaseMessaging.instance.getInitialMessage().then((message) {
-      if (message != null && mounted) {
-        // The message should have been processed by the background handler,
-        // so we just ensure the inbox opens.
-        _openAutoInbox();
-      }
-    });
-  }
-
-
 
   // add / rename / delete / recolor
   Future<void> _addCategoryIfMissing(String name) async {
