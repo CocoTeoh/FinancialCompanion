@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'goals_tab.dart';
-import 'accounts_tab.dart';
 import 'assistant_tab.dart';
 import 'summary_tab.dart';
 import 'calendar_tab.dart';
-import 'finance_ui.dart';
 
-enum FinanceTab { goals, accounts, assistant, summary, calendar }
+enum FinanceTab { goals, assistant, summary, calendar }
 
 class FinancePage extends StatefulWidget {
   const FinancePage({super.key});
@@ -15,10 +13,29 @@ class FinancePage extends StatefulWidget {
 }
 
 class _FinancePageState extends State<FinancePage> {
-  FinanceTab _current = FinanceTab.goals;
+  // Single source of truth for tab order
+  static const List<FinanceTab> kTabs = <FinanceTab>[
+    FinanceTab.goals,
+    FinanceTab.assistant,
+    FinanceTab.summary,
+    FinanceTab.calendar,
+  ];
+
+  FinanceTab _current = kTabs.first;
 
   @override
   Widget build(BuildContext context) {
+    if (!kTabs.contains(_current)) _current = kTabs.first;
+
+    final Map<FinanceTab, Widget> tabPages = {
+      FinanceTab.goals: const GoalsTab(),
+      FinanceTab.assistant: const AssistantTab(),
+      FinanceTab.summary: const SummaryTab(),
+      FinanceTab.calendar: const CalendarTab(),
+    };
+
+    final currentIndex = kTabs.indexOf(_current);
+
     return Scaffold(
       backgroundColor: const Color(0xFF8EBB87),
       body: SafeArea(
@@ -26,22 +43,20 @@ class _FinancePageState extends State<FinancePage> {
           children: [
             const SizedBox(height: 8),
             _TopIconBar(
+              tabs: kTabs,
               current: _current,
               onChanged: (t) => setState(() => _current = t),
+              // You can tune these live (pass different values from call site if needed)
+              horizontalPadding: 15,
+              spacing: 20,
+              buttonSize: 70,
+              iconSize: 100,
             ),
             const SizedBox(height: 12),
             Expanded(
               child: IndexedStack(
-                index: _current.index,
-                // Remove the top-level `const` so non-const widgets are allowed
-                children: [
-                  // Use `const` per-item only if the constructor is const
-                  const GoalsTab(),
-                  const AccountsTab(),
-                  const AssistantTab(),
-                  const SummaryTab(),
-                  const CalendarTab(),
-                ],
+                index: currentIndex,
+                children: kTabs.map((t) => tabPages[t]!).toList(growable: false),
               ),
             ),
           ],
@@ -52,31 +67,51 @@ class _FinancePageState extends State<FinancePage> {
 }
 
 class _TopIconBar extends StatelessWidget {
-  const _TopIconBar({required this.current, required this.onChanged});
+  const _TopIconBar({
+    required this.tabs,
+    required this.current,
+    required this.onChanged,
+    this.horizontalPadding = 15,
+    this.spacing = 20,
+    this.buttonSize = 70,
+    this.iconSize = 100,
+  });
+
+  final List<FinanceTab> tabs;
   final FinanceTab current;
   final ValueChanged<FinanceTab> onChanged;
 
+  final double horizontalPadding;
+  final double spacing;
+  final double buttonSize;
+  final double iconSize;
+
+  String _assetFor(FinanceTab t) {
+    switch (t) {
+      case FinanceTab.goals:     return 'assets/goals.png';
+      case FinanceTab.assistant: return 'assets/assistant.png';
+      case FinanceTab.summary:   return 'assets/summary.png';
+      case FinanceTab.calendar:  return 'assets/calendar.png';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final items = [
-      (FinanceTab.goals,     'assets/goals.png'),
-      (FinanceTab.accounts,  'assets/accounts.png'),
-      (FinanceTab.assistant, 'assets/assistant.png'),
-      (FinanceTab.summary,   'assets/summary.png'),
-      (FinanceTab.calendar,  'assets/calendar.png'),
-    ];
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: items.map((it) {
-          final selected = current == it.$1;
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 6),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: spacing,
+        children: tabs.map((tab) {
+          final selected = current == tab;
           return GestureDetector(
-            onTap: () => onChanged(it.$1),
+            onTap: () => onChanged(tab),
             child: Container(
-              width: 58, height: 58,
+              width: buttonSize,
+              height: buttonSize,
               decoration: BoxDecoration(
-                color: Colors.white, shape: BoxShape.circle,
+                color: Colors.white,
+                shape: BoxShape.circle,
                 border: selected
                     ? Border.all(color: const Color(0xFF264E3C), width: 2)
                     : null,
@@ -89,10 +124,10 @@ class _TopIconBar extends StatelessWidget {
                 ],
               ),
               alignment: Alignment.center,
-              child: Image.asset(it.$2, width: 24, height: 24),
+              child: Image.asset(_assetFor(tab), width: iconSize, height: iconSize),
             ),
           );
-        }).toList(),
+        }).toList(growable: false),
       ),
     );
   }

@@ -77,11 +77,18 @@ class QuizQuestion {
 
 class CoursePage extends StatefulWidget {
   final String? highlightCourseId;
-  const CoursePage({super.key, this.highlightCourseId});
+  final bool openCourseImmediately;
+
+  const CoursePage({
+    super.key,
+    this.highlightCourseId,
+    this.openCourseImmediately = false,
+  });
 
   @override
   State<CoursePage> createState() => _CoursePageState();
 }
+
 
 class UserPetAvatar extends StatelessWidget {
   final double size; // circle size
@@ -536,16 +543,20 @@ class _CoursePageState extends State<CoursePage> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
-          child: Text('No quiz found for this course.',
-              style: const TextStyle(color: Colors.white)),
+          child: Text(
+            'No quiz found for this course.',
+            style: const TextStyle(color: Colors.white),
+          ),
         ),
       );
     }
     final q = _quiz[_qIndex];
     final current = _qIndex + 1;
 
+
     return SingleChildScrollView(
       controller: scrollController,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -572,6 +583,7 @@ class _CoursePageState extends State<CoursePage> {
             ],
           ),
           const SizedBox(height: 12),
+
           // Progress bar
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
@@ -590,8 +602,7 @@ class _CoursePageState extends State<CoursePage> {
             children: [
               Expanded(
                 child: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: const BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.only(
@@ -646,16 +657,16 @@ class _CoursePageState extends State<CoursePage> {
             const defaultBg = Color(0xFF2F5643);
             const selectedBg = Color(0xFF466F5A);
             const correctBg = Color(0xFF78C850); // green
-            const wrongBg = Color(0xFFE04F5F); // red
+            const wrongBg = Color(0xFFE04F5F);   // red
 
             Color bg;
             if (_showingFeedback) {
               if (i == q.correctIndex) {
-                bg = correctBg; // correct answer in green
+                bg = correctBg;          // correct answer in green
               } else if (_selectedOption == i) {
-                bg = wrongBg; // chosen wrong option in red
+                bg = wrongBg;            // chosen wrong option in red
               } else {
-                bg = defaultBg; // others stay dim
+                bg = defaultBg;          // others stay dim
               }
             } else {
               bg = _selectedOption == i ? selectedBg : defaultBg;
@@ -668,8 +679,7 @@ class _CoursePageState extends State<CoursePage> {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   width: double.infinity,
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   decoration: BoxDecoration(
                     color: bg,
                     borderRadius: BorderRadius.circular(14),
@@ -698,6 +708,7 @@ class _CoursePageState extends State<CoursePage> {
       ),
     );
   }
+
 
   @override
   void initState() {
@@ -1108,26 +1119,48 @@ class _CoursePageState extends State<CoursePage> {
                 }).toList();
 
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (!_didScroll && widget.highlightCourseId != null) {
-                    final key = _courseKeys[widget.highlightCourseId];
-                    if (key?.currentContext != null) {
-                      _didScroll = true;
-                      Scrollable.ensureVisible(
-                        key!.currentContext!,
-                        duration: const Duration(milliseconds: 600),
-                        curve: Curves.easeInOut,
-                      );
-                      setState(() => _activeCourse = filtered.firstWhere(
-                              (c) => c.id == widget.highlightCourseId));
-                    }
+                  if (_didScroll || widget.highlightCourseId == null) return;
+
+                  // 1) Find the course in the CURRENT filtered list
+                  final int idx = filtered.indexWhere((c) => c.id == widget.highlightCourseId);
+                  if (idx < 0) return; // not visible under current filters
+
+                  _didScroll = true;
+                  final course = filtered[idx];
+
+                  // 2) Try precise scroll first (needs the keyed widget to be built)
+                  final key = _courseKeys[course.id];
+                  if (key?.currentContext != null) {
+                    Scrollable.ensureVisible(
+                      key!.currentContext!,
+                      duration: const Duration(milliseconds: 600),
+                      curve: Curves.easeInOut,
+                    );
+                  } else {
+                    // 3) Fallback: approximate scroll using controller (card ~150px tall)
+                    const double approxItemExtent = 150;
+                    _scrollController.animateTo(
+                      idx * approxItemExtent,
+                      duration: const Duration(milliseconds: 600),
+                      curve: Curves.easeInOut,
+                    );
+                  }
+
+                  // 4) Auto-open the bottom sheet if requested
+                  if (widget.openCourseImmediately) {
+                    // wait one frame so the scroll can settle and sheet opens smoothly
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) setState(() => _activeCourse = course);
+                    });
                   }
                 });
+
 
                 return Stack(
                   children: [
                     SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 16),
+                      controller: _scrollController, // ← attach so animateTo() works
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [

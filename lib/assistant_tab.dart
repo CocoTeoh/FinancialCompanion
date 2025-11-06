@@ -7,7 +7,7 @@ import 'main_shell.dart';
 import 'course_page.dart'; // --- IMPORTING THIS FILE NOW ---
 
 // --- IMPORTANT ---
-const String _apiKey = 'API HERE';
+const String _apiKey = 'MY API KEY';
 
 
 // --- Date Helpers (from GoalsTab) ---
@@ -63,7 +63,8 @@ class _AssistantTabState extends State<AssistantTab> {
         "The 'reply' key should contain your text-based advice, referencing the user's data where appropriate (e.g., 'I see you've spent X on Y...')."
         "The 'reply' is short advice, and 'suggested_categories' is an array of learning categories like "
         "['Budgeting', 'Investing', 'Investing', 'Planning']. "
-        "Suggest courses according to user's requests"
+        "Suggest courses according to user's requests. "
+        "Only suggest courses that exists in the app. "
         "Choose categories based on what the user asks — for example, if they mention saving, suggest 'Budgeting' or 'Planning'.";
         "When a user asks for help, your 'reply' text should: "
         "1. Acknowledge their concern and be empathetic. "
@@ -593,19 +594,20 @@ class _CourseSuggestions extends StatelessWidget {
               title: Text(title),
               subtitle: Text(sub),
               leading: const Icon(Icons.menu_book_outlined),
-              onTap: () {
-                Navigator.of(context).push(
+                onTap: () {
+                  Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
                     MaterialPageRoute(
-                      fullscreenDialog: true,
                       builder: (_) => MainShell(
-                        initialIndex: 0,
-                        highlightCourseId: course.id, // 👈 send the ID
-                  ),
-                ));
+                        initialIndex: 0,                    // Courses tab
+                        highlightCourseId: course.id,       // which course
+                        openCourseImmediately: true,        // let CoursePage open it right away
+                      ),
+                    ),
+                        (route) => false,
+                  );
 
+                }
 
-                // --- END NEW ---
-              },
             );
           }).toList(),
         ],

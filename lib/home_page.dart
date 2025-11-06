@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'course_page.dart';
 
-
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
@@ -61,6 +60,9 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    // heights for the inner scroll areas
+    const double kInnerListHeight = 280;
+
     return StreamBuilder<double>(
       stream: _monthlyBudgetTotal(),
       builder: (ctx, budgetSnap) {
@@ -85,12 +87,11 @@ class _HomePageState extends State<HomePage> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.transparent, // <- transparent background
+                      color: Colors.transparent,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
-
-                    children: [
+                      children: [
                         SizedBox(
                           width: 180,
                           height: 180,
@@ -102,10 +103,10 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                         const SizedBox(width: 16),
-                        Expanded(
+                        const Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
+                            children: [
                               _Legend(color: Color(0xFFE85D5D), text: 'Overspend'),
                               SizedBox(height: 10),
                               _Legend(color: Color(0xFFFBBF24), text: 'Used amount'),
@@ -122,12 +123,29 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 16),
 
                 const _SectionTitle('Recent transactions'),
-                _RecentTransactionsList(txCol: _txCol),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SizedBox(
+                    height: kInnerListHeight,
+                    child: _RecentTransactionsList(
+                      txCol: _txCol,
+                    ),
+                  ),
+                ),
 
-                const SizedBox(height: 12),
+                const SizedBox(height:12),
 
                 const _SectionTitle('Recommended for you'),
-                _BudgetCoursesList(coursesCol: _coursesCol),
+                // Independent scroll area for courses
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SizedBox(
+                    height: kInnerListHeight,
+                    child: _BudgetCoursesList(
+                      coursesCol: _coursesCol,
+                    ),
+                  ),
+                ),
               ],
             );
           },
@@ -146,7 +164,11 @@ class _Legend extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(width: 14, height: 14, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4))),
+        Container(
+            width: 14,
+            height: 14,
+            decoration:
+            BoxDecoration(color: color, borderRadius: BorderRadius.circular(4))),
         const SizedBox(width: 10),
         Text(
           text,
@@ -178,7 +200,6 @@ class _BudgetDonut extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Order to match the mock visually: Used (orange), Balance (green), Overspend (red) when present
     final segments = <_Seg>[];
     if (used > 0) {
       segments.add(_Seg(
@@ -321,7 +342,7 @@ class _DonutPainter extends CustomPainter {
       old.total != total || old.segments != segments;
 }
 
-/// ---------------- Recent transactions ----------------
+/// ---------------- Recent transactions (own scroll) ----------------
 class _RecentTransactionsList extends StatelessWidget {
   const _RecentTransactionsList({required this.txCol});
   final CollectionReference<Map<String, dynamic>> txCol;
@@ -329,51 +350,51 @@ class _RecentTransactionsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: txCol.orderBy('date', descending: true).limit(20).snapshots(),
+      stream: txCol.orderBy('date', descending: true).limit(50).snapshots(),
       builder: (ctx, snap) {
         if (!snap.hasData) {
-          return const SizedBox(
-              height: 80, child: Center(child: CircularProgressIndicator()));
+          return const Center(child: CircularProgressIndicator());
         }
         final docs = snap.data!.docs;
         if (docs.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          return const Center(
             child: Text(
               'No transactions yet.',
               style: TextStyle(fontFamily: 'Poppins', color: Color(0xFF475569)),
             ),
           );
         }
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            children: docs.map((d) {
-              final m = d.data();
-              final title = (m['title'] ?? '') as String;
-              final desc = (m['description'] ?? '') as String;
-              final amount = (m['amount'] ?? 0).toDouble();
-              final ts = (m['date'] as Timestamp?)?.toDate();
-              final dateStr =
-              ts == null ? '' : '${_month(ts.month)} ${ts.day}, ${ts.year}';
+        return ListView.separated(
+          primary: false,
+          physics: const BouncingScrollPhysics(),
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final d = docs[index];
+            final m = d.data();
+            final title = (m['title'] ?? '') as String;
+            final desc = (m['description'] ?? '') as String;
+            final amount = (m['amount'] ?? 0).toDouble();
+            final ts = (m['date'] as Timestamp?)?.toDate();
+            final dateStr =
+            ts == null ? '' : '${_month(ts.month)} ${ts.day}, ${ts.year}';
 
-              final cats = (m['categories'] as List<dynamic>? ?? [])
-                  .map((e) => e.toString())
-                  .toList();
-              final isIncome = cats.any((c) => c.toLowerCase() == 'salary');
-              final amountStr =
-                  '${isIncome ? '+' : '-'}RM ${amount.abs().toStringAsFixed(0)}';
+            final cats = (m['categories'] as List<dynamic>? ?? [])
+                .map((e) => e.toString())
+                .toList();
+            final isIncome = cats.any((c) => c.toLowerCase() == 'salary');
+            final amountStr =
+                '${isIncome ? '+' : '-'}RM ${amount.abs().toStringAsFixed(0)}';
 
-              return _TxCard(
-                leadingText:
-                cats.isNotEmpty ? cats.first.characters.first.toUpperCase() : '•',
-                title: title.isEmpty ? (cats.isEmpty ? 'Transaction' : cats.first) : title,
-                subtitle: dateStr,
-                rightPill: amountStr,
-                description: desc,
-              );
-            }).toList(),
-          ),
+            return _TxCard(
+              leadingText:
+              cats.isNotEmpty ? cats.first.characters.first.toUpperCase() : '•',
+              title: title.isEmpty ? (cats.isEmpty ? 'Transaction' : cats.first) : title,
+              subtitle: dateStr,
+              rightPill: amountStr,
+              description: desc,
+            );
+          },
         );
       },
     );
@@ -403,16 +424,15 @@ class _TxCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF3B3B3B),
+        color: Colors.white, // <- white background
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.10),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           )
         ],
       ),
@@ -431,6 +451,7 @@ class _TxCard extends StatelessWidget {
               style: const TextStyle(
                 fontFamily: 'Poppins',
                 fontWeight: FontWeight.w700,
+                color: Colors.black, // <- dark text
               ),
             ),
           ),
@@ -439,21 +460,25 @@ class _TxCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13.5,
-                    )),
-                Text(subtitle,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      color: Colors.white70,
-                      fontSize: 11.5,
-                    )),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    color: Colors.black, // <- dark title
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    color: Colors.black54, // <- dark subtitle
+                    fontSize: 11.5,
+                  ),
+                ),
                 if (description.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
@@ -462,7 +487,7 @@ class _TxCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontFamily: 'Poppins',
-                      color: Colors.white70,
+                      color: Colors.black54, // <- dark description
                       fontSize: 11.5,
                     ),
                   ),
@@ -474,14 +499,15 @@ class _TxCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: const Color(0xFF2B8761),
+              color: const Color(0xFFE5E7EB), // <- light gray pill bg
               borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFD1D5DB)),
             ),
             child: Text(
               rightPill,
               style: const TextStyle(
                 fontFamily: 'Poppins',
-                color: Colors.white,
+                color: Colors.black, // <- dark pill text
                 fontWeight: FontWeight.w700,
                 fontSize: 12.5,
               ),
@@ -493,21 +519,19 @@ class _TxCard extends StatelessWidget {
   }
 }
 
-/// ---------------- Budget courses first; fallback otherwise ----------------
+/// ---------------- Budget courses first; fallback otherwise (own scroll) ----------------
 class _BudgetCoursesList extends StatelessWidget {
   const _BudgetCoursesList({required this.coursesCol});
   final CollectionReference<Map<String, dynamic>> coursesCol;
 
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _budgetThenAll() async* {
-    // Try Budget category first
     final budgetSnap =
-    await coursesCol.where('category', isEqualTo: 'Budget').limit(10).get();
+    await coursesCol.where('category', isEqualTo: 'Budget').limit(20).get();
     if (budgetSnap.docs.isNotEmpty) {
       yield budgetSnap.docs;
       return;
     }
-    // Fallback to any courses
-    final anySnap = await coursesCol.limit(10).get();
+    final anySnap = await coursesCol.limit(20).get();
     yield anySnap.docs;
   }
 
@@ -517,39 +541,39 @@ class _BudgetCoursesList extends StatelessWidget {
       stream: _budgetThenAll(),
       builder: (ctx, snap) {
         if (!snap.hasData) {
-          return const SizedBox(
-              height: 80, child: Center(child: CircularProgressIndicator()));
+          return const Center(child: CircularProgressIndicator());
         }
         final docs = snap.data!;
         if (docs.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          return const Center(
             child: Text(
               'No courses yet.',
               style: TextStyle(fontFamily: 'Poppins', color: Color(0xFF475569)),
             ),
           );
         }
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            children: docs.map((d) {
-              final m = d.data();
-              final title = (m['title'] ?? '') as String;
-              final author = (m['author'] ?? '') as String;
-              final minutes = (m['readMinutes'] ?? 5) as int;
-              final hasQuiz = (m['hasQuiz'] ?? false) as bool;
-              final imageUrl = (m['imageUrl'] ?? '') as String;
+        return ListView.separated(
+          primary: false,
+          physics: const BouncingScrollPhysics(),
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final d = docs[index];
+            final m = d.data();
+            final title = (m['title'] ?? '') as String;
+            final author = (m['author'] ?? '') as String;
+            final minutes = (m['readMinutes'] ?? 5) as int;
+            final hasQuiz = (m['hasQuiz'] ?? false) as bool;
+            final imageUrl = (m['imageUrl'] ?? '') as String;
 
-              return _CourseCard(
-                title: title,
-                author: author,
-                minutes: minutes,
-                hasQuiz: hasQuiz,
-                imageUrl: imageUrl,
-              );
-            }).toList(),
-          ),
+            return _CourseCard(
+              title: title,
+              author: author,
+              minutes: minutes,
+              hasQuiz: hasQuiz,
+              imageUrl: imageUrl,
+            );
+          },
         );
       },
     );
@@ -575,7 +599,6 @@ class _CourseCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 88,
-      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFF214235).withOpacity(0.85),
@@ -622,7 +645,8 @@ class _CourseCard extends StatelessWidget {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(10),

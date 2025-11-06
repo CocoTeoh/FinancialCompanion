@@ -301,10 +301,9 @@ class _GoalsTabState extends State<GoalsTab> {
         ),
 
 
-        // 2) Budgets header + “Daily”
         _SectionHeader(
           title: 'Budgets',
-          subtitle: 'Daily',
+          subtitle: 'Monthly',
           trailing: TextButton.icon(
             onPressed: () => _openBudgetSheet(context),
             icon: const Icon(Icons.add, color: Color(0xFF214235)),
@@ -445,6 +444,7 @@ class _GoalsTabState extends State<GoalsTab> {
             if (ctx.mounted) Navigator.pop(ctx);
           },
         );
+
       },
     );
   }
@@ -723,7 +723,7 @@ class _SpeechBubble extends StatelessWidget {
           topLeft: Radius.circular(16),
           topRight: Radius.circular(16),
           bottomLeft: Radius.circular(16),
-          bottomRight: Radius.zero, // 👈 squared corner
+          bottomRight: Radius.zero,
         ),
         boxShadow: const [BoxShadow(blurRadius: 6, offset: Offset(0, 2), color: Colors.black12)],
       ),
@@ -832,7 +832,7 @@ class _BudgetTile extends StatelessWidget {
             children: [
               _meta('Today\'s spending', 'RM ${spent.toStringAsFixed(0)}'),
               const Spacer(),
-              _meta('Daily budget', 'RM ${budget.toStringAsFixed(0)}'),
+              _meta('Monthly budget', 'RM ${budget.toStringAsFixed(0)}'),
             ],
           ),
         ],
@@ -1152,7 +1152,7 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
             IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
           ]),
           const SizedBox(height:8),
-          _InputBox(controller: widget.titleCtrl, hint: 'Title (e.g., Food daily budget)'),
+          _InputBox(controller: widget.titleCtrl, hint: 'Title (e.g., Food Monthly budget)'),
           const SizedBox(height:10),
           _InputBox(
             controller: widget.amountCtrl,
