@@ -1,8 +1,12 @@
 import 'dart:math';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'course_page.dart';
+import 'package:google_generative_ai/google_generative_ai.dart'; // <- for silent AI
+import 'course_page.dart'; // for Course model
+import 'main_shell.dart';
+
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -49,8 +53,9 @@ class _HomePageState extends State<HomePage> {
       for (final d in snap.docs) {
         final data = d.data();
         final amount = (data['amount'] ?? 0).toDouble();
-        final cats =
-        (data['categories'] as List<dynamic>? ?? []).map((e) => '$e').toList();
+        final cats = (data['categories'] as List<dynamic>? ?? [])
+            .map((e) => '$e')
+            .toList();
         final isIncome = cats.any((c) => c.toLowerCase() == 'salary');
         if (!isIncome) sum += amount.abs();
       }
@@ -107,7 +112,7 @@ class _HomePageState extends State<HomePage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _Legend(color: Color(0xFFE85D5D), text: 'Overspend'),
+                              _Legend(color: Color(0xFFB45C5C), text: 'Overspend'),
                               SizedBox(height: 10),
                               _Legend(color: Color(0xFFFBBF24), text: 'Used amount'),
                               SizedBox(height: 10),
@@ -133,16 +138,19 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
 
-                const SizedBox(height:12),
+                const SizedBox(height: 12),
 
                 const _SectionTitle('Recommended for you'),
-                // Independent scroll area for courses
+                // Silent AI picks categories -> we show only real courses from Firestore
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: SizedBox(
                     height: kInnerListHeight,
-                    child: _BudgetCoursesList(
+                    child: _AiRecommendedCourses(
                       coursesCol: _coursesCol,
+                      txCol: _txCol,
+                      budgetsCol: _budgetsCol,
+                      userId: _uid,
                     ),
                   ),
                 ),
@@ -218,7 +226,7 @@ class _BudgetDonut extends StatelessWidget {
     if (overspend > 0) {
       segments.add(_Seg(
         value: overspend,
-        color: const Color(0xFFE85D5D), // red (overspend)
+        color: const Color(0xFFB45C5C), // red (overspend)
         label: 'RM ${overspend.toStringAsFixed(0)}',
       ));
     }
@@ -426,11 +434,11 @@ class _TxCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white, // <- white background
+        color: Color(0xFF39683D),
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.white.withOpacity(0.06),
             blurRadius: 10,
             offset: const Offset(0, 4),
           )
@@ -442,7 +450,7 @@ class _TxCard extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: const Color(0xFFEFB8C8),
+              color: const Color(0xFFA3C8A7),
               borderRadius: BorderRadius.circular(10),
             ),
             alignment: Alignment.center,
@@ -451,7 +459,7 @@ class _TxCard extends StatelessWidget {
               style: const TextStyle(
                 fontFamily: 'Poppins',
                 fontWeight: FontWeight.w700,
-                color: Colors.black, // <- dark text
+                color: Colors.black,
               ),
             ),
           ),
@@ -466,7 +474,7 @@ class _TxCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontFamily: 'Poppins',
-                    color: Colors.black, // <- dark title
+                    color: Colors.white,
                     fontWeight: FontWeight.w700,
                     fontSize: 13.5,
                   ),
@@ -475,7 +483,7 @@ class _TxCard extends StatelessWidget {
                   subtitle,
                   style: const TextStyle(
                     fontFamily: 'Poppins',
-                    color: Colors.black54, // <- dark subtitle
+                    color: Colors.white,
                     fontSize: 11.5,
                   ),
                 ),
@@ -487,7 +495,7 @@ class _TxCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontFamily: 'Poppins',
-                      color: Colors.black54, // <- dark description
+                      color: Colors.white,
                       fontSize: 11.5,
                     ),
                   ),
@@ -499,15 +507,15 @@ class _TxCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: const Color(0xFFE5E7EB), // <- light gray pill bg
+              color: const Color(0xFFA2D5A7),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFD1D5DB)),
+              border: Border.all(color: const Color(0xFFA2D5A7)),
             ),
             child: Text(
               rightPill,
               style: const TextStyle(
                 fontFamily: 'Poppins',
-                color: Colors.black, // <- dark pill text
+                color: Colors.black,
                 fontWeight: FontWeight.w700,
                 fontSize: 12.5,
               ),
@@ -519,63 +527,221 @@ class _TxCard extends StatelessWidget {
   }
 }
 
-/// ---------------- Budget courses first; fallback otherwise (own scroll) ----------------
-class _BudgetCoursesList extends StatelessWidget {
-  const _BudgetCoursesList({required this.coursesCol});
-  final CollectionReference<Map<String, dynamic>> coursesCol;
+/// ---------------- Silent AI recommendations (own scroll) ----------------
+/// This widget:
+/// 1) Builds a monthly financial summary from Firestore
+/// 2) Asks Gemini (silently) for up to 3 categories
+/// 3) Maps categories -> EXISTING courses in your 'courses' collection
+/// 4) Displays them using the same card style you already have
+class _AiRecommendedCourses extends StatefulWidget {
+  const _AiRecommendedCourses({
+    required this.coursesCol,
+    required this.txCol,
+    required this.budgetsCol,
+    required this.userId,
+  });
 
-  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _budgetThenAll() async* {
-    final budgetSnap =
-    await coursesCol.where('category', isEqualTo: 'Budget').limit(20).get();
-    if (budgetSnap.docs.isNotEmpty) {
-      yield budgetSnap.docs;
-      return;
+  final CollectionReference<Map<String, dynamic>> coursesCol;
+  final CollectionReference<Map<String, dynamic>> txCol;
+  final CollectionReference<Map<String, dynamic>> budgetsCol;
+  final String userId;
+
+  @override
+  State<_AiRecommendedCourses> createState() => _AiRecommendedCoursesState();
+}
+
+class _AiRecommendedCoursesState extends State<_AiRecommendedCourses> {
+  bool _loading = true;
+  List<Course> _all = [];
+  List<Course> _suggested = [];
+
+
+  static const String _apiKey = 'AIzaSyAhxy_gk0FYEnaxzVa5VH2OqABxhNLxk8s';
+
+  late final GenerativeModel _model = GenerativeModel(
+    model: 'gemini-2.5-flash',
+    apiKey: _apiKey,
+    systemInstruction: Content.system(
+      "You will receive a JSON summary of the user's budgets, goals, and spending. "
+          "Reply with valid JSON containing ONLY the key 'suggested_categories' (array of up to 3 strings). "
+          "Example: {\"suggested_categories\":[\"Budgeting\",\"Planning\"]}. "
+          "Pick categories that EXIST in the app (e.g., Budgeting, Investing, Planning). "
+          "No extra keys. No prose. No markdown.",
+    ),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _run();
+  }
+
+  Future<void> _run() async {
+    try {
+      // 1) Load all courses for local mapping
+      final cdocs = await widget.coursesCol.get();
+      _all = cdocs.docs.map((d) => Course.fromMap(d.data(), d.id)).toList();
+
+      // 2) Build user financial summary (current month)
+      final summaryJson = await _buildUserFinancialSummary(widget.userId);
+
+      // 3) Ask AI for up to 3 categories (silent)
+      final cats = await _pickCategories(summaryJson);
+
+      // 4) Map categories -> courses you already have (title contains)
+      final lowerCats = cats.map((c) => c.toLowerCase()).toList();
+      final matches = <Course>{
+        for (final c in lowerCats)
+          ..._all.where((course) {
+            final t1 = course.shortTitle.toLowerCase();
+            final t2 = course.longTitle.toLowerCase();
+            return t1.contains(c) || t2.contains(c);
+          })
+      };
+
+      setState(() => _suggested = matches.toList());
+    } catch (_) {
+      setState(() => _suggested = []);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    final anySnap = await coursesCol.limit(20).get();
-    yield anySnap.docs;
+  }
+
+  Future<List<String>> _pickCategories(String financialSummaryJson) async {
+    final prompt =
+        "User financial summary: $financialSummaryJson\n\nUser message: Recommend up to 3 relevant learning categories.";
+    final res = await _model.generateContent([Content.text(prompt)]);
+    final raw = (res.text ?? '').trim();
+    if (raw.isEmpty) return const [];
+    final cleaned = raw.replaceAll('```json', '').replaceAll('```', '').trim();
+    final map = jsonDecode(cleaned) as Map<String, dynamic>;
+    final cats = (map['suggested_categories'] as List?)?.cast<String>() ?? const [];
+    final set = <String>{};
+    for (final c in cats) {
+      final s = c.trim();
+      if (s.isNotEmpty) set.add(s);
+      if (set.length == 3) break;
+    }
+    return set.toList();
+  }
+
+  // Minimal, local version of your summary builder (current month)
+  Future<String> _buildUserFinancialSummary(String userId) async {
+    final now = DateTime.now();
+    final periodKey = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
+    final monthStart = DateTime(now.year, now.month, 1);
+    final monthEnd = DateTime(now.year, now.month + 1, 0);
+
+    final userDoc = FirebaseFirestore.instance.collection('users').doc(userId);
+    final budgetsCol = userDoc.collection('budgets');
+    final goalsCol = userDoc.collection('goals');
+    final txCol = userDoc.collection('transactions');
+
+    try {
+      final results = await Future.wait([
+        budgetsCol.where('period', isEqualTo: periodKey).get(),
+        goalsCol.where('period', isEqualTo: periodKey).get(),
+        txCol
+            .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(DateTime(monthStart.year, monthStart.month, monthStart.day)))
+            .where('date', isLessThanOrEqualTo: Timestamp.fromDate(DateTime(monthEnd.year, monthEnd.month, monthEnd.day)))
+            .get(),
+      ]);
+
+      final budgets = (results[0] as QuerySnapshot<Map<String, dynamic>>)
+          .docs
+          .map((d) => {
+        'label': d['label'],
+        'category': d['category'],
+        'amount': d['amount'],
+      })
+          .toList();
+
+      final goals = (results[1] as QuerySnapshot<Map<String, dynamic>>)
+          .docs
+          .map((d) => {
+        'label': d['label'],
+        'category': d['category'],
+        'goalAmount': d['goalAmount'],
+      })
+          .toList();
+
+      final txSnap = results[2] as QuerySnapshot<Map<String, dynamic>>;
+      final spendByCategory = <String, double>{};
+      double totalSpending = 0;
+      for (final d in txSnap.docs) {
+        final m = d.data();
+        final cats =
+        (m['categories'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+        final amount = (m['amount'] ?? 0).toDouble();
+        totalSpending += amount;
+        if (cats.isEmpty) {
+          spendByCategory['uncategorized'] =
+              (spendByCategory['uncategorized'] ?? 0) + amount;
+        } else {
+          for (final c in cats) {
+            final k = c.toLowerCase();
+            spendByCategory[k] = (spendByCategory[k] ?? 0) + amount;
+          }
+        }
+      }
+
+      final summary = {
+        'currentMonth': periodKey,
+        'budgets': budgets,
+        'goals': goals,
+        'spendByCategory': spendByCategory,
+        'totalSpending': totalSpending,
+      };
+      return jsonEncode(summary);
+    } catch (e) {
+      return jsonEncode({'error': 'Failed to fetch data', 'details': e.toString()});
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-      stream: _budgetThenAll(),
-      builder: (ctx, snap) {
-        if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final docs = snap.data!;
-        if (docs.isEmpty) {
-          return const Center(
-            child: Text(
-              'No courses yet.',
-              style: TextStyle(fontFamily: 'Poppins', color: Color(0xFF475569)),
-            ),
-          );
-        }
-        return ListView.separated(
-          primary: false,
-          physics: const BouncingScrollPhysics(),
-          itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final d = docs[index];
-            final m = d.data();
-            final title = (m['title'] ?? '') as String;
-            final author = (m['author'] ?? '') as String;
-            final minutes = (m['readMinutes'] ?? 5) as int;
-            final hasQuiz = (m['hasQuiz'] ?? false) as bool;
-            final imageUrl = (m['imageUrl'] ?? '') as String;
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_suggested.isEmpty) return const Center(child: Text('No suggestions yet.'));
 
-            return _CourseCard(
-              title: title,
-              author: author,
-              minutes: minutes,
-              hasQuiz: hasQuiz,
-              imageUrl: imageUrl,
+    // Renders exactly like your regular course list cards
+    return ListView.separated(
+      primary: false,
+      physics: const BouncingScrollPhysics(),
+      itemCount: _suggested.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, i) {
+        final course = _suggested[i];
+
+        // Try to read minutes as an int from duration like "12 Min read"
+        final minutes = int.tryParse(
+          course.duration.replaceAll(RegExp(r'[^0-9]'), ''),
+        ) ??
+            5;
+
+        return GestureDetector(
+          onTap: () {
+            // Deep link to Courses tab and auto-open this course
+            Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+              MaterialPageRoute(
+                builder: (_) => MainShell(
+                  initialIndex: 0,                    // Courses tab
+                  highlightCourseId: course.id,       // which course to scroll to
+                  openCourseImmediately: true,        // auto-open its sheet
+                ),
+              ),
+                  (route) => false,
             );
           },
+          child: _CourseCard(
+            title: course.shortTitle,
+            author: course.author,
+            minutes: minutes,
+            hasQuiz: course.hasQuiz,
+            imageUrl: '', // set if you have thumbnails
+          ),
         );
       },
+
     );
   }
 }

@@ -406,7 +406,9 @@ class _GoalsTabState extends State<GoalsTab> {
 
     await showModalBottomSheet(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: const Color(0xFFE7F0E9),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
       builder: (ctx) {
@@ -456,7 +458,9 @@ class _GoalsTabState extends State<GoalsTab> {
 
     await showModalBottomSheet(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: const Color(0xFFE7F0E9),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
       builder: (ctx) {
@@ -1138,9 +1142,16 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final media = MediaQuery.of(context);
+    final bottomInset = media.viewInsets.bottom;   // keyboard
+    final safe = media.padding.bottom;             // home indicator / system inset
     return Padding(
-      padding: EdgeInsets.only(left:16, right:16, top:12, bottom:16 + bottomInset),
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 12,
+        bottom: 16 + safe + bottomInset, // <- was just bottomInset before
+      ),
       child: SingleChildScrollView(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children:[
@@ -1205,8 +1216,11 @@ class _GoalFormSheetState extends State<_GoalFormSheet> {
           ]),
         ]),
       ),
+
     );
   }
+
+
 }
 
 class _ManageCategoriesSheet extends StatelessWidget {

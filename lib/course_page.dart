@@ -89,6 +89,104 @@ class CoursePage extends StatefulWidget {
   State<CoursePage> createState() => _CoursePageState();
 }
 
+/// Reusable tile for course rows used across the app (Courses/Home/Assistant).
+class CourseListTile extends StatelessWidget {
+  const CourseListTile({
+    super.key,
+    required this.course,
+    required this.onTap,
+    required this.isFavouriteFuture,
+    required this.onToggleFavourite,
+  });
+
+  final Course course;
+  final VoidCallback onTap;
+
+  /// Provide a future that returns whether this course is favourited.
+  final Future<bool> Function(String courseId) isFavouriteFuture;
+
+  /// Called to toggle favourite for this course.
+  final Future<void> Function(String courseId) onToggleFavourite;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF355E47),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Texts
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(course.shortTitle,
+                      style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white)),
+                  const SizedBox(height: 6),
+                  Text("By ${course.author}",
+                      style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 12,
+                          color: Colors.white70)),
+                  const SizedBox(height: 4),
+                  Text(
+                    course.hasQuiz ? "Quiz included" : "No Quiz",
+                    style: const TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.yellow,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Fav + duration
+            Column(
+              children: [
+                FutureBuilder<bool>(
+                  future: isFavouriteFuture(course.id),
+                  builder: (context, snapshot) {
+                    final isFav = snapshot.data ?? false;
+                    return IconButton(
+                      icon: Icon(
+                        isFav ? Icons.star : Icons.star_border,
+                        color: Colors.orange,
+                      ),
+                      onPressed: () => onToggleFavourite(course.id),
+                    );
+                  },
+                ),
+                Text(
+                  course.duration,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11,
+                    color: Colors.orange,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
 
 class UserPetAvatar extends StatelessWidget {
   final double size; // circle size
@@ -453,87 +551,6 @@ class _CoursePageState extends State<CoursePage> {
     );
   }
 
-  Widget _buildCourseCard(Course course) {
-    final key = _courseKeys[course.id] ??= GlobalKey();
-    return Container(
-      key: key,
-      child: GestureDetector(
-        onTap: () => _openCourse(course),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF355E47),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Course text
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(course.shortTitle,
-                        style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white)),
-                    const SizedBox(height: 6),
-                    Text("By ${course.author}",
-                        style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 12,
-                            color: Colors.white70)),
-                    const SizedBox(height: 4),
-                    Text(
-                      course.hasQuiz ? "Quiz included" : "No Quiz",
-                      style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.yellow,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Fav star + duration
-              Column(
-                children: [
-                  FutureBuilder<bool>(
-                    future: _isFavourite(course.id),
-                    builder: (context, snapshot) {
-                      final isFav = snapshot.data ?? false;
-                      return IconButton(
-                        icon: Icon(
-                          isFav ? Icons.star : Icons.star_border,
-                          color: Colors.orange,
-                        ),
-                        onPressed: () async {
-                          await _toggleFavorite(course.id);
-                          setState(() {}); // refresh UI
-                        },
-                      );
-                    },
-                  ),
-                  Text(
-                    course.duration,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 11,
-                      color: Colors.orange,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   // ---------- QUIZ VIEWS ----------
 
@@ -1039,29 +1056,28 @@ class _CoursePageState extends State<CoursePage> {
   // ---------- BUILD ----------
 
   @override
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF8EBB87),
       body: SafeArea(
-        child: FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance
+        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
               .collection('users')
               .doc(FirebaseAuth.instance.currentUser!.uid)
-              .get(),
+              .snapshots(),
           builder: (context, favSnapshot) {
             if (!favSnapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
 
-            // User's favourites
-            List favs = favSnapshot.data!['favourites'] ?? [];
-
-            // Prefer firstName from Firestore; fall back to other sources
             final authUser = FirebaseAuth.instance.currentUser;
-            final data =
-                (favSnapshot.data!.data() as Map<String, dynamic>? ) ?? {};
+            final data = favSnapshot.data!.data() ?? {};
 
-            // try common key variants
+            // User's favourites (live)
+            final List favs = (data['favourites'] as List?) ?? [];
+
+            // Resolve name (Firestore first, then fallbacks)
             String userName = '';
             for (final key in ['firstName', 'first_name', 'firstname']) {
               final v = (data[key] ?? '').toString().trim();
@@ -1070,13 +1086,8 @@ class _CoursePageState extends State<CoursePage> {
                 break;
               }
             }
-
             if (userName.isEmpty) {
-              // if there's a full name, take the first token
-              final full = (data['name'] ??
-                  data['username'] ??
-                  authUser?.displayName ??
-                  '')
+              final full = (data['name'] ?? data['username'] ?? authUser?.displayName ?? '')
                   .toString()
                   .trim();
               if (full.isNotEmpty) {
@@ -1099,22 +1110,17 @@ class _CoursePageState extends State<CoursePage> {
                 // Filter courses
                 final filtered = allCourses.where((c) {
                   if (_selectedCategory != null &&
-                      !c.longTitle
-                          .toLowerCase()
-                          .contains(_selectedCategory!.toLowerCase())) {
+                      !c.longTitle.toLowerCase().contains(_selectedCategory!.toLowerCase())) {
                     return false;
                   }
-
                   if (_showFavoritesOnly && !favs.contains(c.id)) {
                     return false;
                   }
-
                   if (q.isNotEmpty &&
                       !c.shortTitle.toLowerCase().contains(q) &&
                       !c.longTitle.toLowerCase().contains(q)) {
                     return false;
                   }
-
                   return true;
                 }).toList();
 
@@ -1148,13 +1154,11 @@ class _CoursePageState extends State<CoursePage> {
 
                   // 4) Auto-open the bottom sheet if requested
                   if (widget.openCourseImmediately) {
-                    // wait one frame so the scroll can settle and sheet opens smoothly
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (mounted) setState(() => _activeCourse = course);
                     });
                   }
                 });
-
 
                 return Stack(
                   children: [
@@ -1171,8 +1175,7 @@ class _CoursePageState extends State<CoursePage> {
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            padding:
-                            const EdgeInsets.symmetric(horizontal: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
                             child: Row(
                               children: [
                                 const Icon(Icons.search, color: Colors.grey),
@@ -1189,15 +1192,12 @@ class _CoursePageState extends State<CoursePage> {
                                 ),
                                 IconButton(
                                   icon: Icon(
-                                    _showFavoritesOnly
-                                        ? Icons.star
-                                        : Icons.star_border,
+                                    _showFavoritesOnly ? Icons.star : Icons.star_border,
                                     color: Colors.orange,
                                   ),
                                   onPressed: () {
                                     setState(() {
-                                      _showFavoritesOnly =
-                                      !_showFavoritesOnly;
+                                      _showFavoritesOnly = !_showFavoritesOnly;
                                     });
                                   },
                                 ),
@@ -1229,10 +1229,9 @@ class _CoursePageState extends State<CoursePage> {
                               // Bubble (left)
                               Expanded(
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 14, vertical: 12),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                   decoration: BoxDecoration(
-                                    color: Colors.white, // solid white
+                                    color: Colors.white,
                                     borderRadius: const BorderRadius.only(
                                       topLeft: Radius.circular(16),
                                       topRight: Radius.circular(16),
@@ -1241,8 +1240,7 @@ class _CoursePageState extends State<CoursePage> {
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color:
-                                        Colors.black.withOpacity(0.08),
+                                        color: Colors.black.withOpacity(0.08),
                                         blurRadius: 6,
                                         offset: const Offset(0, 3),
                                       ),
@@ -1285,10 +1283,21 @@ class _CoursePageState extends State<CoursePage> {
                           const SizedBox(height: 16),
 
                           if (filtered.isEmpty)
-                            const Text("No courses found.",
-                                style: TextStyle(color: Colors.white70))
+                            const Text("No courses found.", style: TextStyle(color: Colors.white70))
                           else
-                            ...filtered.map(_buildCourseCard).toList(),
+                            Column(
+                              children: filtered.map((course) {
+                                return CourseListTile(
+                                  course: course,
+                                  onTap: () => _openCourse(course),
+                                  isFavouriteFuture: (id) => _isFavourite(id),
+                                  onToggleFavourite: (id) async {
+                                    await _toggleFavorite(id);
+                                    if (mounted) setState(() {}); // refresh stars
+                                  },
+                                );
+                              }).toList(),
+                            ),
                         ],
                       ),
                     ),
@@ -1298,8 +1307,7 @@ class _CoursePageState extends State<CoursePage> {
                       Positioned.fill(
                         child: GestureDetector(
                           onTap: () => setState(() => _activeCourse = null),
-                          child:
-                          Container(color: Colors.black26), // dim background
+                          child: Container(color: Colors.black26), // dim background
                         ),
                       ),
 
@@ -1312,8 +1320,7 @@ class _CoursePageState extends State<CoursePage> {
                         builder: (context, scrollController) {
                           final course = _activeCourse!;
 
-                          return NotificationListener<
-                              DraggableScrollableNotification>(
+                          return NotificationListener<DraggableScrollableNotification>(
                             onNotification: (n) {
                               // auto-dismiss when nearly collapsed
                               if (n.extent <= 0.05 && _activeCourse != null) {
@@ -1325,27 +1332,23 @@ class _CoursePageState extends State<CoursePage> {
                               padding: const EdgeInsets.all(16),
                               decoration: const BoxDecoration(
                                 color: Color(0xFF355E47),
-                                borderRadius: BorderRadius.vertical(
-                                    top: Radius.circular(20)),
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                               ),
                               child: !_inQuiz
                                   ? SingleChildScrollView(
                                 controller: scrollController,
                                 child: Column(
-                                  crossAxisAlignment:
-                                  CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     // drag handle
                                     Center(
                                       child: Container(
                                         width: 44,
                                         height: 5,
-                                        margin: const EdgeInsets.only(
-                                            bottom: 12),
+                                        margin: const EdgeInsets.only(bottom: 12),
                                         decoration: BoxDecoration(
                                           color: Colors.white24,
-                                          borderRadius:
-                                          BorderRadius.circular(999),
+                                          borderRadius: BorderRadius.circular(999),
                                         ),
                                       ),
                                     ),
@@ -1353,12 +1356,8 @@ class _CoursePageState extends State<CoursePage> {
                                     Row(
                                       children: [
                                         IconButton(
-                                          icon: const Icon(
-                                              Icons.arrow_back,
-                                              color: Colors.white),
-                                          onPressed: () => setState(
-                                                  () => _activeCourse =
-                                              null),
+                                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+                                          onPressed: () => setState(() => _activeCourse = null),
                                         ),
                                         Expanded(
                                           child: Text(
@@ -1366,8 +1365,7 @@ class _CoursePageState extends State<CoursePage> {
                                             style: const TextStyle(
                                               fontFamily: 'Poppins',
                                               fontSize: 20,
-                                              fontWeight:
-                                              FontWeight.bold,
+                                              fontWeight: FontWeight.bold,
                                               color: Colors.white,
                                             ),
                                           ),
@@ -1375,24 +1373,16 @@ class _CoursePageState extends State<CoursePage> {
                                         Column(
                                           children: [
                                             FutureBuilder<bool>(
-                                              future: _isFavourite(
-                                                  course.id),
-                                              builder:
-                                                  (context, snapshot) {
-                                                final isFav =
-                                                    snapshot.data ??
-                                                        false;
+                                              future: _isFavourite(course.id),
+                                              builder: (context, snapshot) {
+                                                final isFav = snapshot.data ?? false;
                                                 return IconButton(
                                                   icon: Icon(
-                                                      isFav
-                                                          ? Icons.star
-                                                          : Icons
-                                                          .star_border,
-                                                      color: Colors
-                                                          .orange),
+                                                    isFav ? Icons.star : Icons.star_border,
+                                                    color: Colors.orange,
+                                                  ),
                                                   onPressed: () async {
-                                                    await _toggleFavorite(
-                                                        course.id);
+                                                    await _toggleFavorite(course.id);
                                                     setState(() {});
                                                   },
                                                 );
@@ -1400,47 +1390,32 @@ class _CoursePageState extends State<CoursePage> {
                                             ),
                                             if (course.hasQuiz)
                                               ElevatedButton(
-                                                onPressed: _loadingQuiz
-                                                    ? null
-                                                    : () => _startQuiz(
-                                                    course),
-                                                style: ElevatedButton
-                                                    .styleFrom(
-                                                  backgroundColor:
-                                                  const Color(
-                                                      0xFF8AD03D),
-                                                  foregroundColor:
-                                                  Colors.white,
-                                                  shape:
-                                                  RoundedRectangleBorder(
-                                                      borderRadius:
-                                                      BorderRadius
-                                                          .circular(
-                                                          10)),
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                      horizontal: 14,
-                                                      vertical: 10),
-                                                  textStyle:
-                                                  const TextStyle(
-                                                      fontFamily:
-                                                      'Poppins',
-                                                      fontWeight:
-                                                      FontWeight
-                                                          .w700),
+                                                onPressed: _loadingQuiz ? null : () => _startQuiz(course),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: const Color(0xFF8AD03D),
+                                                  foregroundColor: Colors.white,
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius: BorderRadius.circular(10),
+                                                  ),
+                                                  padding: const EdgeInsets.symmetric(
+                                                    horizontal: 14,
+                                                    vertical: 10,
+                                                  ),
+                                                  textStyle: const TextStyle(
+                                                    fontFamily: 'Poppins',
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
                                                 ),
                                                 child: _loadingQuiz
                                                     ? const SizedBox(
-                                                    height: 16,
-                                                    width: 16,
-                                                    child:
-                                                    CircularProgressIndicator(
-                                                        strokeWidth:
-                                                        2,
-                                                        color: Colors
-                                                            .white))
-                                                    : const Text(
-                                                    'Take Quiz !'),
+                                                  height: 16,
+                                                  width: 16,
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                    color: Colors.white,
+                                                  ),
+                                                )
+                                                    : const Text('Take Quiz !'),
                                               ),
                                           ],
                                         ),
@@ -1450,37 +1425,36 @@ class _CoursePageState extends State<CoursePage> {
                                     Text(
                                       "By ${course.author} • ${course.duration}",
                                       style: const TextStyle(
-                                          fontFamily: 'Poppins',
-                                          fontSize: 12,
-                                          color: Colors.white70),
+                                        fontFamily: 'Poppins',
+                                        fontSize: 12,
+                                        color: Colors.white70,
+                                      ),
                                     ),
                                     const SizedBox(height: 24),
                                     ...course.sections.map(
                                           (s) => Padding(
-                                        padding:
-                                        const EdgeInsets.only(
-                                            bottom: 16),
+                                        padding: const EdgeInsets.only(bottom: 16),
                                         child: Column(
-                                          crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Text(s.title,
-                                                style: const TextStyle(
-                                                    fontFamily:
-                                                    'Poppins',
-                                                    fontSize: 16,
-                                                    fontWeight:
-                                                    FontWeight.bold,
-                                                    color:
-                                                    Colors.white)),
+                                            Text(
+                                              s.title,
+                                              style: const TextStyle(
+                                                fontFamily: 'Poppins',
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                              ),
+                                            ),
                                             const SizedBox(height: 6),
-                                            Text(s.content,
-                                                style: const TextStyle(
-                                                    fontSize: 12,
-                                                    color:
-                                                    Color(0xFF9393A3),
-                                                    fontFamily:
-                                                    'Poppins')),
+                                            Text(
+                                              s.content,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Color(0xFF9393A3),
+                                                fontFamily: 'Poppins',
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),
@@ -1491,10 +1465,8 @@ class _CoursePageState extends State<CoursePage> {
                                   : (_quizMode == QuizMode.playing
                                   ? _buildQuizView(scrollController)
                                   : _quizMode == QuizMode.result
-                                  ? _buildResultView(
-                                  scrollController)
-                                  : _buildReviewView(
-                                  scrollController)),
+                                  ? _buildResultView(scrollController)
+                                  : _buildReviewView(scrollController)),
                             ),
                           );
                         },
@@ -1508,4 +1480,5 @@ class _CoursePageState extends State<CoursePage> {
       ),
     );
   }
+
 }

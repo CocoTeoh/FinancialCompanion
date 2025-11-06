@@ -937,14 +937,14 @@ class _NewTransactionButton extends StatelessWidget {
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
-        decoration: BoxDecoration(color: const Color(0xFF3B3B3B), borderRadius: BorderRadius.circular(14),
+        decoration: BoxDecoration(color: const Color(0xFF4E7752), borderRadius: BorderRadius.circular(14),
             boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.10), blurRadius: 6, offset: const Offset(0, 2))]),
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: vPad),
         child: Row(children: [
-          Container(width: iconBox, height: iconBox, decoration: BoxDecoration(color: const Color(0xFFFF7547), borderRadius: BorderRadius.circular(10)), alignment: Alignment.center, child: const Icon(Icons.add, color: Colors.white, size: 16)),
+          Container(width: iconBox, height: iconBox, decoration: BoxDecoration(color: const Color(0xFFB1DAB5), borderRadius: BorderRadius.circular(10)), alignment: Alignment.center, child: const Icon(Icons.add, color: Colors.black, size: 16)),
           const SizedBox(width: 10),
           const Expanded(child: Text('New transaction', style: TextStyle(fontFamily:'Poppins', color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13))),
-          Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: const Color(0xFF5B5B5B), borderRadius: BorderRadius.circular(14)), child: const Text('Amount', style: TextStyle(fontFamily:'Poppins', color: Colors.white70, fontSize: 12))),
+          Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4)),
         ]),
       ),
     );
@@ -971,28 +971,46 @@ class _TransactionTile extends StatelessWidget {
       onTap: onTap, borderRadius: BorderRadius.circular(14),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
-        decoration: BoxDecoration(color: const Color(0xFF3B3B3B), borderRadius: BorderRadius.circular(14)),
+        decoration: BoxDecoration(color: const Color(0xFFD8E9D9), borderRadius: BorderRadius.circular(14)),
         padding: EdgeInsets.all(vPad),
         child: Row(children: [
-          Container(width: avatar, height: avatar, decoration: BoxDecoration(color: const Color(0xFFEFB8C8), borderRadius: BorderRadius.circular(10)), alignment: Alignment.center,
+          Container(width: avatar, height: avatar, decoration: BoxDecoration(color: const Color(0xFFAED0B2), borderRadius: BorderRadius.circular(10)), alignment: Alignment.center,
               child: Text((entry.categories.isNotEmpty ? entry.categories.first.characters.first : '•').toUpperCase(), style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700))),
           const SizedBox(width: 10),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontFamily: 'Poppins', color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5)),
+            Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontFamily: 'Poppins', color: Colors.black, fontWeight: FontWeight.w700, fontSize: 13.5)),
             if (entry.description.isNotEmpty) ...[
               const SizedBox(height: 2),
-              Text(entry.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontFamily: 'Poppins', color: Colors.white70, fontSize: 11.5)),
+              Text(entry.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontFamily: 'Poppins', color: Colors.black, fontSize: 11.5)),
             ],
             const SizedBox(height: 6),
             Wrap(spacing: 6, runSpacing: 4, children: _visibleCats(entry.categories).map((c) => Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: Colors.white.withOpacity(0.08), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.white24)),
-              child: Text(c, style: TextStyle(fontFamily: 'Poppins', color: Colors.white, fontSize: chipFS)),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.08), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.black26)),
+              child: Text(c, style: TextStyle(fontFamily: 'Poppins', color: Colors.black, fontSize: chipFS)),
             )).toList()),
           ])),
           const SizedBox(width: 10),
-          Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), decoration: BoxDecoration(color: isIncome ? const Color(0xFF10B981) : const Color(0xFF2B8761), borderRadius: BorderRadius.circular(14)),
-              child: Text(amountStr, style: const TextStyle(fontFamily: 'Poppins', color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12.5))),
+          // Amount pill: GREEN for salary (income), RED for expenses
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: isIncome
+                  ? const Color(0xFF10B981) // green (income / Salary)
+                  : const Color(0xFFB45C5C), // red (money paid)
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(
+              amountStr,
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+              ),
+            ),
+          ),
+
         ]),
       ),
     );

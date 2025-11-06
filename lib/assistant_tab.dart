@@ -7,7 +7,7 @@ import 'main_shell.dart';
 import 'course_page.dart'; // --- IMPORTING THIS FILE NOW ---
 
 // --- IMPORTANT ---
-const String _apiKey = 'MY API KEY';
+const String _apiKey = 'AIzaSyAhxy_gk0FYEnaxzVa5VH2OqABxhNLxk8s';
 
 
 // --- Date Helpers (from GoalsTab) ---
@@ -58,7 +58,8 @@ class _AssistantTabState extends State<AssistantTab> {
         "You are a friendly financial assistant helping users manage money. "
         "You will receive a JSON summary of the user's budgets, goals, and spending. "
         "Then the user will ask a question. "
-        "Your job: reply with short, warm advice under 100 words and include up to 3 relevant learning course categories. "
+        "Your job: reply with short, warm advice under 100 words"
+        "Only suggest courses when users asks for courses recommendations or courses suggestions"
         "Your response MUST be valid JSON with keys: 'reply' and 'suggested_categories'. "
         "The 'reply' key should contain your text-based advice, referencing the user's data where appropriate (e.g., 'I see you've spent X on Y...')."
         "The 'reply' is short advice, and 'suggested_categories' is an array of learning categories like "

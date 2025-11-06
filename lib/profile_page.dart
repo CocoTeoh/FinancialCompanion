@@ -124,14 +124,33 @@ class _ProfilePageState extends State<ProfilePage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                _displayName,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
-                                ),
+                              StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                                stream: _userDocStream,
+                                builder: (context, snap) {
+                                  final d = snap.data?.data() ?? {};
+                                  final first = (d['firstName'] ?? '').toString().trim();
+                                  final last  = (d['lastName']  ?? '').toString().trim();
+                                  final composed = '$first $last'.trim();
+
+
+                                  final authName = _user?.displayName?.trim();
+                                  final emailPart = _email.contains('@') ? _email.split('@').first : 'User';
+
+                                  final name = composed.isNotEmpty
+                                      ? composed
+                                      : (authName != null && authName.isNotEmpty ? authName : emailPart);
+
+                                  return Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black87,
+                                    ),
+                                  );
+                                },
                               ),
+
                               const SizedBox(height: 4),
                               Text(
                                 _email,
